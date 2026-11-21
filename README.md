@@ -44,3 +44,13 @@ The first start downloads Chroma's embedding model (~80 MB, one time only).
 
 ## Customize
 To add or edit personas and their knowledge, change the `PERSONAS` dictionary in `app.py`. The knowledge is re-indexed into Chroma on startup.
+
+## Deploy
+Live at **https://vca.anshu.tech** on EC2. Caddy serves it over HTTPS and proxies to a `vca` systemd service on `127.0.0.1:8010`. The code lives in `/opt/vca`, and the server keeps its own `.env`.
+
+Every push to `main` that changes `app.py`, `index.html` or `requirements.txt` deploys automatically through GitHub Actions ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)):
+1. The workflow checks the Python syntax, packs the three files and sends them over SSH using the `VCA_DEPLOY_KEY` secret.
+2. On the server, that key can only run [`/usr/local/bin/vca-deploy`](.github/vca-deploy.sh). The script installs the files, installs any new Python packages and restarts VCA.
+3. The script then health-checks the app and **rolls back automatically** if the new version doesn't come up.
+
+You can also redeploy by hand from the repo's **Actions → Deploy → Run workflow** page.

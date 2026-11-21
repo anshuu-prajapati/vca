@@ -1,0 +1,38 @@
+# Auto-deploy to https://vca.anshu.tech on every push to main.
+# The deploy key in VCA_DEPLOY_KEY can only run /usr/local/bin/vca-deploy on the server (see .github/vca-deploy.sh):
+# it receives the app files, restarts VCA, health-checks it and rolls back automatically if the new version fails.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths: [app.py, index.html, requirements.txt, .github/workflows/deploy.yml]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-vca
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Python syntax
+        run: python3 -m py_compile app.py
+
+      - name: Deploy to server
+        env:
+          DEPLOY_KEY: ${{ secrets.VCA_DEPLOY_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VCA_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/vca_deploy && chmod 600 ~/.ssh/vca_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          tar -czf - app.py index.html requirements.txt \
+            | ssh -T -i ~/.ssh/vca_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes ubuntu@vca.anshu.tech
+
+      - name: Check live site
+        run: curl -fsS --retry 5 --retry-delay 3 https://vca.anshu.tech/api/personas > /dev/null && echo "vca.anshu.tech is up"

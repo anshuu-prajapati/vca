@@ -3,141 +3,395 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VCA · Voice Call AI</title>
+<title>VCA · Agents Hub</title>
 <link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
-  :root { --bg:#fafafa; --card:#fff; --fg:#111; --muted:#777; --line:#e8e8e8; --accent:#111; --ok:#16a34a; --bad:#dc2626;
-          --g1:#6366f1; --g2:#ec4899; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#0d0d0f; --card:#161618; --fg:#eee; --muted:#8a8a8a; --line:#27272a; --accent:#eee; } }
-  * { box-sizing:border-box; margin:0; }
-  body { font:15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--fg); }
-  main { max-width:960px; margin:0 auto; padding:24px 16px; }
-  header { display:flex; justify-content:space-between; align-items:center; margin-bottom:32px; gap:12px; }
-  .logo { font-weight:700; letter-spacing:.5px; }
-  .logo span { background:linear-gradient(90deg,var(--g1),var(--g2)); -webkit-background-clip:text; color:transparent; }
-  .muted { color:var(--muted); font-size:13px; }
-  .hidden { display:none !important; }
+  :root {
+    --bg:#F3F7F6; --surface:#FFFFFF; --fg:#1E2B2F; --muted:#76878B; --faint:#A7B4B7; --line:#E5EDEB;
+    --mint:#5CC6A7; --mint-d:#3BAA89; --mint-soft:#E6F6F0; --lav:#8E7CF0; --lav-soft:#EFECFF;
+    --red:#F0695D; --red-soft:#FDEDEB; --amber:#F4B740;
+    --shadow:0 1px 2px rgba(20,50,45,.04), 0 6px 20px rgba(20,50,45,.05); --r:16px;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font:15px/1.5 "Nunito", -apple-system, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--fg);
+         -webkit-font-smoothing:antialiased; }
   button, input { font:inherit; color:inherit; }
-  input { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:var(--card); outline:none; }
-  input:focus { border-color:var(--g1); }
-  button { padding:10px 16px; border:1px solid var(--accent); border-radius:10px; background:var(--accent); color:var(--bg); cursor:pointer; }
-  button.ghost { background:transparent; color:var(--fg); border-color:var(--line); }
-  button.danger { background:var(--bad); border-color:var(--bad); color:#fff; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px; }
-  .stack > * + * { margin-top:12px; }
-  .err { color:var(--bad); font-size:13px; min-height:18px; }
-  #login { max-width:360px; margin:10vh auto 0; }
-  .pw { position:relative; }
-  .pw button { position:absolute; right:6px; top:50%; transform:translateY(-50%); padding:4px 8px; font-size:12px;
-               background:transparent; color:var(--muted); border:none; }
-  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px,1fr)); gap:16px; }
-  .persona { cursor:pointer; transition:border-color .15s, transform .15s; }
-  .persona:hover { border-color:var(--g1); transform:translateY(-2px); }
-  .persona h3 { font-size:16px; font-weight:600; }
-  .avatar { width:44px; height:44px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff;
-            font-weight:600; background:linear-gradient(135deg,var(--g1),var(--g2)); flex-shrink:0; }
-  .who-row { display:flex; gap:12px; align-items:center; margin-bottom:10px; }
-  /* call */
-  #call { max-width:560px; margin:0 auto; text-align:center; }
-  .stage { position:relative; width:150px; height:150px; margin:28px auto 12px; display:flex; align-items:center; justify-content:center; }
-  .stage .avatar { width:96px; height:96px; font-size:34px; position:relative; z-index:1; }
-  .ring { position:absolute; inset:0; border-radius:50%; border:2px solid transparent; }
-  .listening .ring { border-color:var(--ok); animation:breathe 2s ease-in-out infinite; }
-  .speaking .ring  { background:radial-gradient(circle, rgba(99,102,241,.25), transparent 70%); animation:talk .5s ease-in-out infinite alternate; }
-  .thinking .ring  { border-color:var(--g1) transparent var(--g2) transparent; animation:spin 1s linear infinite; }
-  @keyframes breathe { 50% { transform:scale(.92); opacity:.5; } }
-  @keyframes talk { from { transform:scale(.9); } to { transform:scale(1.12); } }
-  @keyframes spin { to { transform:rotate(360deg); } }
-  #state { font-size:13px; color:var(--muted); min-height:20px; }
-  .transcript { text-align:left; max-height:38vh; overflow-y:auto; margin:16px 0; display:flex; flex-direction:column; gap:8px; }
-  .bubble { max-width:85%; padding:8px 12px; border-radius:14px; background:var(--card); border:1px solid var(--line); }
-  .bubble.me { align-self:flex-end; background:var(--accent); color:var(--bg); border-color:var(--accent); }
-  .row { display:flex; gap:8px; justify-content:center; }
-  .interim { min-height:22px; color:var(--muted); font-style:italic; }
-  /* admin */
-  .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px; }
-  .stats .card { padding:14px; } .stats b { font-size:22px; display:block; }
-  .tabs { display:flex; gap:16px; border-bottom:1px solid var(--line); margin-bottom:12px; }
-  .tabs a { padding:8px 0; cursor:pointer; color:var(--muted); }
-  .tabs a.on { color:var(--fg); border-bottom:2px solid var(--accent); }
+  a { color:inherit; }
+  .hidden { display:none !important; }
+  .muted { color:var(--muted); } .small { font-size:13px; } .faint { color:var(--faint); }
+  svg.i { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; }
+
+  /* generic pieces */
+  .card { background:var(--surface); border-radius:var(--r); box-shadow:var(--shadow); padding:20px; }
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; height:42px; padding:0 18px; border:0;
+         border-radius:12px; cursor:pointer; font-weight:700; transition:filter .15s, transform .1s; }
+  .btn:active { transform:scale(.98); }
+  .btn.primary { background:var(--mint); color:#fff; } .btn.primary:hover { filter:brightness(.95); }
+  .btn.soft { background:var(--mint-soft); color:var(--mint-d); }
+  .btn.ghost { background:transparent; color:var(--muted); }
+  .btn.block { width:100%; }
+  .btn:disabled, input:disabled { opacity:.5; cursor:default; }
+  .pill { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:700; padding:3px 10px; border-radius:99px;
+          background:var(--mint-soft); color:var(--mint-d); }
+  .pill.lav { background:var(--lav-soft); color:var(--lav); } .pill.grey { background:#EEF2F1; color:var(--muted); }
+  .pill .d { width:7px; height:7px; border-radius:50%; background:currentColor; }
+  .field { position:relative; margin-top:14px; }
+  .field input { width:100%; height:46px; padding:0 44px 0 14px; border:1.5px solid var(--line); border-radius:12px;
+                 background:#FAFCFB; outline:none; transition:border-color .15s, background .15s; }
+  .field input:focus { border-color:var(--mint); background:#fff; }
+  .field .icon { position:absolute; right:12px; top:12px; color:var(--faint); background:none; border:0; cursor:pointer; padding:2px; }
+  .err { color:var(--red); font-size:13px; min-height:20px; margin-top:10px; }
+  .av { display:inline-block; border-radius:50%; overflow:hidden; flex-shrink:0; line-height:0; }
+  .av svg { width:100%; height:100%; }
+  .initial { width:34px; height:34px; border-radius:50%; background:var(--lav-soft); color:var(--lav); display:inline-flex;
+             align-items:center; justify-content:center; font-weight:800; font-size:14px; flex-shrink:0; }
+
+  /* login */
+  #login { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;
+           background:radial-gradient(1000px 500px at 20% 0%, #E9F7F2 0%, transparent 60%), radial-gradient(800px 500px at 100% 100%, #F1EEFF 0%, transparent 60%), var(--bg); }
+  .login-card { width:100%; max-width:380px; text-align:center; padding:28px 28px 22px; position:relative; }
+  .mascot { width:92px; height:92px; margin:-74px auto 6px; display:block; }
+  .login-card h1 { font-size:22px; font-weight:800; }
+  .login-card form { text-align:left; margin-top:8px; }
+  .login-card .btn { margin-top:20px; }
+  .brandline { display:flex; align-items:center; justify-content:center; gap:8px; margin-top:18px; font-size:12px; color:var(--faint); }
+
+  /* app shell */
+  #app { display:grid; grid-template-columns:232px 1fr; min-height:100vh; }
+  aside { background:var(--surface); border-right:1px solid var(--line); display:flex; flex-direction:column; padding:20px 14px;
+          position:sticky; top:0; height:100vh; }
+  .logo { display:flex; align-items:center; gap:10px; padding:2px 8px 22px; }
+  .logo b { display:block; font-size:16px; font-weight:800; letter-spacing:.3px; line-height:1.1; }
+  .logo span { font-size:11px; color:var(--muted); font-weight:700; letter-spacing:.6px; text-transform:uppercase; }
+  nav a { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:10px; cursor:pointer; color:var(--muted);
+          font-weight:700; text-decoration:none; margin-bottom:2px; }
+  nav a:hover { background:#F4F8F7; color:var(--fg); }
+  nav a.on { background:var(--mint-soft); color:var(--mint-d); }
+  .me { margin-top:auto; display:flex; align-items:center; gap:10px; padding:10px; border-radius:12px; background:#F7FAF9; }
+  .me .who { flex:1; min-width:0; font-size:13px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .me .who small { display:block; font-weight:600; color:var(--faint); font-size:11px; }
+  .me button { border:0; background:none; color:var(--muted); cursor:pointer; padding:4px; }
+  .main { min-width:0; }
+  .topbar { display:flex; align-items:center; justify-content:space-between; padding:18px 32px; }
+  .topbar h1 { font-size:20px; font-weight:800; }
+  .content { padding:4px 32px 40px; max-width:1180px; }
+  .section-title { display:flex; align-items:center; justify-content:space-between; margin:28px 0 12px; font-weight:800; font-size:16px; }
+
+  /* stats */
+  .stats { display:grid; grid-template-columns:repeat(4, 1fr); gap:16px; }
+  .stat { padding:16px 18px; }
+  .stat .label { font-size:13px; color:var(--muted); font-weight:700; }
+  .stat .val { font-size:26px; font-weight:800; margin-top:2px; letter-spacing:-.3px; }
+  .stat .val small { font-size:14px; color:var(--muted); font-weight:700; }
+
+  /* agent cards */
+  .agents { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:16px; }
+  .agent { display:flex; flex-direction:column; border:1.5px solid transparent; transition:border-color .15s, transform .15s; }
+  .agent:hover { border-color:var(--mint); transform:translateY(-2px); }
+  .agent .top { display:flex; justify-content:space-between; align-items:flex-start; }
+  .agent .role { margin-top:12px; font-weight:800; font-size:16px; }
+  .agent .name { color:var(--muted); font-weight:700; font-size:14px; }
+  .agent p { color:var(--muted); font-size:13px; margin:8px 0 16px; flex:1; }
+
+  /* tables */
+  .table-card { padding:6px 8px; overflow-x:auto; }
   table { width:100%; border-collapse:collapse; font-size:14px; }
-  th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); }
-  th { font-weight:500; color:var(--muted); font-size:12px; }
-  tr.click { cursor:pointer; } tr.click:hover td { background:rgba(127,127,127,.06); }
-  .dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--muted); margin-right:6px; }
-  .dot.active { background:var(--ok); }
-  .msg { padding:8px 0; border-bottom:1px solid var(--line); }
-  .msg b { font-size:12px; font-weight:600; color:var(--muted); display:block; }
-  details { font-size:12px; color:var(--muted); margin-top:4px; } details pre { white-space:pre-wrap; font:inherit; }
-  @media (max-width:600px) { .stats { grid-template-columns:repeat(2,1fr); } .hide-sm { display:none; } }
+  th { text-align:left; font-size:12px; color:var(--faint); font-weight:700; padding:12px 12px 8px; }
+  td { padding:11px 12px; border-top:1px solid var(--line); white-space:nowrap; }
+  tr.row { cursor:pointer; } tr.row:hover td { background:#F8FBFA; } tr.row.sel td { background:var(--mint-soft); }
+  .agentcell { display:flex; align-items:center; gap:10px; font-weight:700; }
+  .stars { color:var(--amber); letter-spacing:1px; } .stars .off { color:#E4E9E8; }
+
+  /* split + detail panel */
+  .split { display:grid; grid-template-columns:1fr; gap:18px; align-items:start; }
+  .split.open { grid-template-columns:minmax(0,1.25fr) minmax(0,1fr); }
+  .split.open .hide-open { display:none; }
+  .panel { position:sticky; top:16px; max-height:calc(100vh - 32px); overflow-y:auto; }
+  .panel-head { display:flex; justify-content:space-between; gap:12px; padding-bottom:14px; margin-bottom:10px; border-bottom:1px solid var(--line); }
+
+  /* chat bubbles (call + history) */
+  .bubbles { display:flex; flex-direction:column; gap:10px; }
+  .bubble { max-width:86%; padding:9px 13px; border-radius:14px; background:#F3F6F5; font-size:14px; }
+  .bubble .who { display:block; font-size:11px; font-weight:800; color:var(--mint-d); margin-bottom:1px; }
+  .bubble.me { align-self:flex-end; background:var(--lav-soft); } .bubble.me .who { color:var(--lav); }
+  .bubble .meta { display:block; font-size:11px; color:var(--faint); margin-top:4px; }
+  details { margin-top:6px; font-size:12px; color:var(--muted); } summary { cursor:pointer; font-weight:700; }
+  details pre { white-space:pre-wrap; font:inherit; margin-top:6px; padding:8px 10px; background:#fff; border-radius:8px; }
+
+  /* call page */
+  .call-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.1fr); gap:18px; align-items:stretch; }
+  .call-left { display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:40px 24px; min-height:520px; }
+  #stage { position:relative; width:150px; height:150px; border-radius:50%; padding:6px; background:var(--mint-soft); transition:box-shadow .3s; }
+  #stage .av { width:138px; height:138px; }
+  #stage .online { position:absolute; right:12px; bottom:12px; width:22px; height:22px; border-radius:50%; background:var(--mint); border:4px solid #fff; }
+  #stage.speaking { box-shadow:0 0 0 8px rgba(92,198,167,.18), 0 0 0 18px rgba(92,198,167,.08); cursor:pointer; }
+  #stage.listening { box-shadow:0 0 0 6px rgba(142,124,240,.15); }
+  #callName { margin-top:18px; font-size:24px; font-weight:800; }
+  .callmeta { color:var(--mint-d); font-weight:700; font-size:14px; }
+  #statusWrap { margin-top:12px; }
+  .rounds { display:flex; gap:22px; margin-top:28px; }
+  .round { display:flex; flex-direction:column; align-items:center; gap:6px; font-size:12px; font-weight:700; color:var(--muted); }
+  .round button { width:56px; height:56px; border-radius:50%; border:0; cursor:pointer; background:var(--mint-soft); color:var(--mint-d);
+                  display:flex; align-items:center; justify-content:center; transition:transform .1s, filter .15s; }
+  .round button:hover { filter:brightness(.96); } .round button:active { transform:scale(.95); }
+  .round button.off { background:#EEF2F1; color:var(--muted); }
+  .round.end button { background:var(--red); color:#fff; }
+  .round svg.i { width:22px; height:22px; }
+  #rateBox { margin-top:28px; } #rateBox .starbtns { display:flex; gap:6px; justify-content:center; margin:10px 0 6px; }
+  .starbtns button { border:0; background:none; cursor:pointer; font-size:30px; color:#E3E9E7; transition:color .1s, transform .1s; }
+  .starbtns button.on, .starbtns button:hover { color:var(--amber); transform:scale(1.08); }
+  .call-right { display:flex; flex-direction:column; min-height:520px; padding:18px 18px 14px; }
+  .call-right .head { display:flex; justify-content:space-between; align-items:center; font-weight:800; margin-bottom:12px; }
+  #transcript { flex:1; overflow-y:auto; max-height:46vh; padding-right:4px; }
+  #interim { min-height:22px; font-size:13px; color:var(--faint); font-style:italic; margin-top:8px; }
+  .wave { display:flex; align-items:center; justify-content:center; gap:4px; height:46px; margin:6px 0 10px; }
+  .wave span { width:4px; height:6px; border-radius:4px; background:#D9E4E1; transition:background .3s; }
+  .wave.speaking span { background:var(--mint); animation:wv .9s ease-in-out infinite; }
+  .wave.listening span { background:var(--lav); animation:wv 1.4s ease-in-out infinite; }
+  @keyframes wv { 0%,100% { height:6px; } 50% { height:var(--h); } }
+  .typebar { display:flex; gap:8px; background:#F6F9F8; border-radius:12px; padding:6px; }
+  .typebar input { flex:1; border:0; background:transparent; outline:none; padding:0 8px; height:36px; }
+  .typebar button { width:36px; height:36px; border-radius:10px; border:0; background:var(--lav); color:#fff; cursor:pointer;
+                    display:flex; align-items:center; justify-content:center; }
+
+  /* analytics */
+  .an-grid { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:16px; margin-top:16px; }
+  .chart-labels { display:flex; justify-content:space-between; font-size:11px; color:var(--faint); margin-top:4px; }
+  .sys-row { margin-top:14px; font-size:13px; }
+  .sys-row .top { display:flex; justify-content:space-between; font-weight:700; }
+  .bar { height:7px; border-radius:6px; background:#EEF3F2; margin-top:6px; overflow:hidden; }
+  .bar i { display:block; height:100%; background:var(--mint); border-radius:6px; }
+
+  @media (max-width:900px) {
+    #app { grid-template-columns:1fr; }
+    aside { position:static; height:auto; flex-direction:row; align-items:center; padding:10px 12px; gap:6px; overflow-x:auto;
+            border-right:0; border-bottom:1px solid var(--line); }
+    .logo { padding:0 8px 0 0; } .logo span { display:none; }
+    nav { display:flex; gap:2px; } nav a { padding:8px 10px; white-space:nowrap; margin:0; } nav a .t { display:none; }
+    .me { margin:0 0 0 auto; padding:4px; background:none; } .me .who { display:none; }
+    .topbar, .content { padding-left:16px; padding-right:16px; }
+    .stats { grid-template-columns:repeat(2, 1fr); }
+    .call-grid, .an-grid, .split.open { grid-template-columns:1fr; }
+    .call-left, .call-right { min-height:0; } .panel { position:static; max-height:none; }
+  }
 </style>
 </head>
 <body>
-<main>
-  <header>
-    <span class="logo"><span>VCA</span> · voice call AI</span>
-    <span id="who" class="muted"></span>
-  </header>
 
-  <!-- login -->
-  <form id="login" class="card stack hidden">
-    <h2 style="font-weight:600">Sign in</h2>
-    <p class="muted">New email? An account is created automatically.</p>
-    <input id="email" name="email" type="text" inputmode="email" placeholder="Email" autocomplete="username">
-    <div class="pw">
-      <input id="password" name="password" type="password" placeholder="Password" autocomplete="current-password">
-      <button type="button" id="pwToggle">Show</button>
+<!-- ============ login ============ -->
+<section id="login" class="hidden">
+  <div class="card login-card">
+    <svg class="mascot" viewBox="0 0 120 120" aria-hidden="true">
+      <path d="M33 17 l5 -6 l5 6 l-5 6z" fill="#F7A6B8"/><path d="M80 12 l4 -5 l4 5 l-4 5z" fill="#C9B8FF"/>
+      <line x1="60" y1="30" x2="60" y2="18" stroke="#9FDCC9" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="60" cy="15" r="6" fill="#F7A6B8"/>
+      <rect x="22" y="30" width="76" height="62" rx="28" fill="#DDF3EC"/>
+      <rect x="31" y="42" width="58" height="38" rx="19" fill="#2F3E45"/>
+      <circle cx="48" cy="60" r="5" fill="#9FF0D6"/><circle cx="72" cy="60" r="5" fill="#9FF0D6"/>
+      <path d="M53 70 q7 5 14 0" stroke="#9FF0D6" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <circle cx="38" cy="72" r="4" fill="#F7A6B8" opacity=".7"/><circle cx="82" cy="72" r="4" fill="#F7A6B8" opacity=".7"/>
+      <rect x="14" y="52" width="10" height="20" rx="5" fill="#BFE9DB"/><rect x="96" y="52" width="10" height="20" rx="5" fill="#BFE9DB"/>
+      <rect x="40" y="94" width="40" height="12" rx="6" fill="#DDF3EC"/>
+    </svg>
+    <h1>Log in to VCA</h1>
+    <p class="muted small">New email? We'll create your account.</p>
+    <form id="loginForm">
+      <div class="field">
+        <input id="email" name="email" type="text" inputmode="email" placeholder="Email" autocomplete="username">
+        <span class="icon"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg></span>
+      </div>
+      <div class="field">
+        <input id="password" name="password" type="password" placeholder="Password" autocomplete="current-password">
+        <button type="button" class="icon" id="pwToggle" title="Show password"><svg class="i" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button>
+      </div>
+      <button class="btn primary block" type="submit">Sign in</button>
+      <div id="loginErr" class="err"></div>
+    </form>
+    <div class="brandline"><span class="logo-mark" data-size="18"></span>VCA · Voice Agents Hub</div>
+  </div>
+</section>
+
+<!-- ============ app ============ -->
+<div id="app" class="hidden">
+  <aside>
+    <div class="logo"><span class="logo-mark" data-size="34"></span><div><b>VCA</b><span>Agents Hub</span></div></div>
+    <nav id="nav"></nav>
+    <div class="me"><span id="meInitial" class="initial"></span>
+      <div class="who"><span id="meName"></span><small id="meRole"></small></div>
+      <button onclick="logout()" title="Log out"><svg class="i" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg></button>
     </div>
-    <button id="loginBtn" type="submit" style="width:100%">Continue</button>
-    <div id="loginErr" class="err"></div>
-  </form>
+  </aside>
 
-  <!-- persona picker -->
-  <section id="home" class="hidden">
-    <h2 style="font-weight:600;margin-bottom:4px">Who would you like to call?</h2>
-    <p class="muted" style="margin-bottom:20px">Pick someone and talk naturally. They'll pick up right away.</p>
-    <div id="personas" class="grid"></div>
-  </section>
+  <div class="main">
+    <div class="topbar"><h1 id="title"></h1><span id="topRight"></span></div>
+    <div class="content">
 
-  <!-- live call -->
-  <section id="call" class="hidden">
-    <div id="stage" class="stage"><div class="ring"></div><div id="callAvatar" class="avatar"></div></div>
-    <h2 id="callName" style="font-weight:600"></h2>
-    <div class="muted"><span id="callRole"></span> · <span id="timer">00:00</span></div>
-    <div id="state">connecting…</div>
-    <div id="interim" class="interim"></div>
-    <div class="row" style="margin-top:8px">
-      <button id="muteBtn" class="ghost">Mute</button>
-      <button id="endBtn" class="danger">End call</button>
+      <!-- user: dashboard -->
+      <section id="p-dashboard" class="page hidden">
+        <div class="stats">
+          <div class="card stat"><div class="label">Agents</div><div class="val" id="dAgents">3</div></div>
+          <div class="card stat"><div class="label">Your calls</div><div class="val" id="dCalls">0</div></div>
+          <div class="card stat"><div class="label">Time talked</div><div class="val" id="dMinutes">0<small> min</small></div></div>
+          <div class="card stat"><div class="label">Your avg rating</div><div class="val" id="dRating">–</div></div>
+        </div>
+        <div class="section-title">Voice agents <span class="pill lav">All online</span></div>
+        <div id="dAgentsGrid" class="agents"></div>
+        <div class="section-title">Recent calls <a class="small muted" href="#" onclick="go('history');return false">View all</a></div>
+        <div class="card table-card"><table><tbody id="dRecent"></tbody></table></div>
+      </section>
+
+      <!-- user: agents -->
+      <section id="p-agents" class="page hidden">
+        <p class="muted" style="margin-bottom:16px">Pick someone and just talk. They pick up instantly and hang up when you're done.</p>
+        <div id="agentsGrid" class="agents"></div>
+      </section>
+
+      <!-- user: history -->
+      <section id="p-history" class="page hidden">
+        <div id="histSplit" class="split">
+          <div class="card table-card"><table><thead><tr><th>Agent</th><th>Date</th><th>Duration</th><th>Rating</th></tr></thead><tbody id="histRows"></tbody></table></div>
+          <div id="histDetail" class="card panel hidden"></div>
+        </div>
+      </section>
+
+      <!-- settings (both roles) -->
+      <section id="p-settings" class="page hidden">
+        <div class="card" style="max-width:560px">
+          <div style="display:flex;gap:14px;align-items:center"><span id="setInitial" class="initial" style="width:52px;height:52px;font-size:20px"></span>
+            <div><div id="setEmail" style="font-weight:800;font-size:17px"></div><div id="setId" class="muted small"></div></div></div>
+          <div class="section-title" style="margin-top:22px">How it works</div>
+          <p class="muted small">Your voice is transcribed in the browser, answered by a fast LLM (Groq, with Gemini as backup) using each agent's own
+            knowledge base, and spoken back with a natural neural voice. Calls end on their own when the conversation is done.</p>
+          <button class="btn soft" style="margin-top:20px" onclick="logout()">Log out</button>
+        </div>
+      </section>
+
+      <!-- user: call -->
+      <section id="p-call" class="page hidden">
+        <div class="call-grid">
+          <div class="card call-left">
+            <div id="stage" title="Tap to interrupt"><span id="callAvatar"></span><span class="online"></span></div>
+            <div id="callName"></div>
+            <div class="callmeta"><span id="callRole"></span> · <span id="timerLabel">Call active</span> <span id="timer">00:00</span></div>
+            <div id="statusWrap" class="pill grey"><span class="d"></span><span id="state">Connecting</span></div>
+            <div id="callBtns" class="rounds">
+              <div class="round"><button id="muteBtn" title="Mute microphone"><svg class="i" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button><span id="muteLbl">Mute</span></div>
+              <div class="round"><button id="spkBtn" title="Speaker"><svg class="i" viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button><span id="spkLbl">Speaker</span></div>
+              <div class="round end"><button id="endBtn" title="End call"><svg class="i" viewBox="0 0 24 24"><path d="M3 15.5c5-5 13-5 18 0l-2.5 2.5-3.5-2v-3c-2-1-4-1-6 0v3l-3.5 2z"/></svg></button><span>End call</span></div>
+            </div>
+            <div id="rateBox" class="hidden">
+              <div style="font-weight:800">How was your call with <span id="rateName"></span>?</div>
+              <div class="starbtns" id="starBtns"></div>
+              <a href="#" class="small muted" onclick="go('dashboard');return false">Skip</a>
+            </div>
+          </div>
+          <div class="card call-right">
+            <div class="head">Live transcription <span id="livePill" class="pill"><span class="d"></span>Live</span></div>
+            <div id="transcript" class="bubbles"></div>
+            <div id="interim"></div>
+            <div id="wave" class="wave"></div>
+            <div class="typebar">
+              <input id="typed" placeholder="Type a message instead…">
+              <button id="sendBtn" title="Send"><svg class="i" viewBox="0 0 24 24"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/></svg></button>
+            </div>
+            <p id="srWarn" class="faint small hidden" style="margin-top:8px">Voice input needs Chrome or Edge. You can still type.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- admin: analytics -->
+      <section id="p-analytics" class="page hidden">
+        <div class="stats">
+          <div class="card stat"><div class="label">Active agents</div><div class="val" id="aAgents">3</div></div>
+          <div class="card stat"><div class="label">Total calls</div><div class="val" id="aCalls">0</div></div>
+          <div class="card stat"><div class="label">Avg response</div><div class="val" id="aLatency">–</div></div>
+          <div class="card stat"><div class="label">Satisfaction</div><div class="val" id="aRating">–</div></div>
+        </div>
+        <div class="an-grid">
+          <div class="card">
+            <div class="section-title" style="margin:0 0 10px">Call volume <span class="pill">Last 14 days</span></div>
+            <svg id="chart" viewBox="0 0 600 170" preserveAspectRatio="none" style="width:100%;height:170px;display:block"></svg>
+            <div id="chartLabels" class="chart-labels"></div>
+          </div>
+          <div class="card">
+            <div class="section-title" style="margin:0">System status <span class="pill"><span class="d"></span>Healthy</span></div>
+            <div id="sys"></div>
+          </div>
+        </div>
+        <div class="section-title">Agents</div>
+        <div class="card table-card"><table><thead><tr><th>Agent</th><th>Calls</th><th>Avg duration</th><th>Avg response</th><th>Rating</th><th>Status</th></tr></thead><tbody id="agentRows"></tbody></table></div>
+      </section>
+
+      <!-- admin: calls -->
+      <section id="p-calls" class="page hidden">
+        <div id="split" class="split">
+          <div class="card table-card"><table><thead><tr><th>Status</th><th>User</th><th>Agent</th><th class="hide-open">Started</th><th class="hide-open">Turns</th><th>Rating</th></tr></thead><tbody id="callRows"></tbody></table></div>
+          <div id="detail" class="card panel hidden"></div>
+        </div>
+      </section>
+
+      <!-- admin: users -->
+      <section id="p-users" class="page hidden">
+        <div class="card table-card"><table><thead><tr><th>User</th><th>User ID</th><th>Joined</th><th>Calls</th></tr></thead><tbody id="userRows"></tbody></table></div>
+      </section>
     </div>
-    <div id="transcript" class="transcript"></div>
-    <input id="typed" placeholder="Or type a message and press Enter">
-    <p id="srWarn" class="muted hidden" style="margin-top:8px">Voice input needs Chrome or Edge. You can still type.</p>
-  </section>
-
-  <!-- admin -->
-  <section id="admin" class="hidden">
-    <div class="stats">
-      <div class="card"><b id="sUsers">0</b><span class="muted">Users</span></div>
-      <div class="card"><b id="sCalls">0</b><span class="muted">Calls</span></div>
-      <div class="card"><b id="sActive">0</b><span class="muted">Active now</span></div>
-      <div class="card"><b id="sMsgs">0</b><span class="muted">Messages</span></div>
-    </div>
-    <div class="tabs"><a data-tab="calls" class="on">Calls</a><a data-tab="users">Users</a></div>
-    <div id="tabCalls"><table><thead><tr><th>Status</th><th>Call</th><th>User</th><th>Agent</th><th class="hide-sm">Started</th><th>Msgs</th></tr></thead><tbody id="callRows"></tbody></table></div>
-    <div id="tabUsers" class="hidden"><table><thead><tr><th>User ID</th><th>Email</th><th>Joined</th><th>Calls</th></tr></thead><tbody id="userRows"></tbody></table></div>
-    <div id="detail" class="card hidden" style="margin-top:20px"></div>
-  </section>
-</main>
+  </div>
+</div>
 
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const fmt = t => t ? new Date(t * 1000).toLocaleString() : "-";
+const fmt = t => t ? new Date(t * 1000).toLocaleString([], { month:"short", day:"numeric", hour:"2-digit", minute:"2-digit" }) : "-";
+const dur = s => s == null ? "–" : s < 60 ? `${Math.round(s)}s` : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
+const stars = r => r ? `<span class="stars">${"★".repeat(Math.round(r))}<span class="off">${"★".repeat(5 - Math.round(r))}</span></span>` : `<span class="faint">–</span>`;
 const pick = a => a[Math.floor(Math.random() * a.length)];
-let auth = null, appVersion = null;
+let auth = null, appVersion = null, page = null;
 try { auth = JSON.parse(localStorage.getItem("vca") || "null"); } catch {}
 
+// ---------- tiny icon set
+const ICON = {
+  dashboard: '<rect x="3" y="3" width="7" height="9" rx="2"/><rect x="14" y="3" width="7" height="5" rx="2"/><rect x="14" y="12" width="7" height="9" rx="2"/><rect x="3" y="16" width="7" height="5" rx="2"/>',
+  agents: '<circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-6 7-6s7 2 7 6M16 4a4 4 0 0 1 0 8M22 21c0-3-2-5-4-5.5"/>',
+  history: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  analytics: '<path d="M3 3v18h18"/><path d="m7 15 4-5 3 3 5-6"/>',
+  calls: '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>',
+};
+const icon = n => `<svg class="i" viewBox="0 0 24 24">${ICON[n]}</svg>`;
+
+// ---------- logo + cute illustrated avatars (inline SVG, no external images)
+document.querySelectorAll(".logo-mark").forEach(el => { const s = el.dataset.size;
+  el.innerHTML = `<svg width="${s}" height="${s}" viewBox="0 0 40 40"><rect width="40" height="40" rx="12" fill="#5CC6A7"/>
+    <rect x="9" y="16" width="4" height="8" rx="2" fill="#fff"/><rect x="15.5" y="11" width="4" height="18" rx="2" fill="#fff"/>
+    <rect x="22" y="14" width="4" height="12" rx="2" fill="#fff" opacity=".85"/><rect x="28.5" y="17.5" width="4" height="5" rx="2" fill="#fff" opacity=".7"/></svg>`; });
+
+const LOOK = {
+  receptionist: { bg:"#FFE2D2", skin:"#F3C9A6", hair:"#3B2A25", shirt:"#7FD0B8", style:"long" },
+  interviewer:  { bg:"#FFE6A8", skin:"#E2AE86", hair:"#2C221E", shirt:"#8FA9F2", style:"short" },
+  sales:        { bg:"#DCE7FF", skin:"#EEC19C", hair:"#4B2F27", shirt:"#F3A0A0", style:"bun" },
+};
+let avN = 0;
+function avatar(id, size) {
+  const L = LOOK[id] || LOOK.receptionist, k = "av" + (avN++);
+  const back = L.style === "long" ? `<path d="M27 50 Q25 19 50 18 Q75 19 73 50 L76 84 L24 84 Z" fill="${L.hair}"/>` : "";
+  const top = {
+    short: `<path d="M30 47 Q28 23 50 22 Q72 23 70 47 Q67 33 50 32 Q35 33 30 47Z" fill="${L.hair}"/>`,
+    long:  `<path d="M31 49 Q30 24 50 23 Q70 24 69 49 Q64 33 53 31 Q40 36 31 49Z" fill="${L.hair}"/>`,
+    bun:   `<circle cx="50" cy="19" r="8.5" fill="${L.hair}"/><path d="M31 47 Q30 24 50 23 Q70 24 69 47 Q63 32 50 31 Q37 32 31 47Z" fill="${L.hair}"/>`,
+  }[L.style];
+  return `<span class="av" style="width:${size}px;height:${size}px"><svg viewBox="0 0 100 100"><defs><clipPath id="${k}"><circle cx="50" cy="50" r="50"/></clipPath></defs>
+    <g clip-path="url(#${k})"><rect width="100" height="100" fill="${L.bg}"/>${back}
+    <ellipse cx="50" cy="100" rx="35" ry="24" fill="${L.shirt}"/><rect x="43" y="62" width="14" height="15" rx="6" fill="${L.skin}"/>
+    <ellipse cx="50" cy="48" rx="19" ry="21" fill="${L.skin}"/>${top}
+    <circle cx="43" cy="49" r="2.3" fill="#2B2B2B"/><circle cx="57" cy="49" r="2.3" fill="#2B2B2B"/>
+    <circle cx="38.5" cy="56" r="3.2" fill="#F59FA0" opacity=".55"/><circle cx="61.5" cy="56" r="3.2" fill="#F59FA0" opacity=".55"/>
+    <path d="M44.5 58 Q50 63 55.5 58" stroke="#8A4A3A" stroke-width="2.2" fill="none" stroke-linecap="round"/></g></svg></span>`;
+}
+
+// ---------- api
 async function api(path, body) {
   const r = await fetch(path, { method: body ? "POST" : "GET",
     headers: { "Content-Type": "application/json", Authorization: "Bearer " + (auth?.token || "") },
@@ -152,52 +406,110 @@ async function api(path, body) {
   return data;
 }
 
-function show(view) {
-  ["login", "home", "call", "admin"].forEach(v => $(v).classList.toggle("hidden", v !== view));
-  $("who").innerHTML = auth ? `${esc(auth.role === "admin" ? "Admin" : auth.user_id)} · ${esc(auth.email)} · <a href="#" onclick="logout()" style="color:inherit">Log out</a>` : "";
+// ---------- shell + navigation
+const NAV = {
+  user:  [["dashboard", "Dashboard"], ["agents", "Agents"], ["history", "Call history"], ["settings", "Settings"]],
+  admin: [["analytics", "Analytics"], ["calls", "Calls"], ["users", "Users"], ["settings", "Settings"]],
+};
+const TITLES = { dashboard: "Voice Agents Hub", agents: "Agents", history: "Call history", settings: "Settings",
+                 analytics: "Admin analytics", calls: "All calls", users: "Users", call: "On a call" };
+
+function boot() {
+  if (!auth) { $("app").classList.add("hidden"); $("login").classList.remove("hidden"); return; }
+  $("login").classList.add("hidden"); $("app").classList.remove("hidden");
+  const name = auth.role === "admin" ? "Admin" : auth.email.split("@")[0];
+  $("meInitial").textContent = $("setInitial").textContent = name[0].toUpperCase();
+  $("meName").textContent = name; $("meRole").textContent = auth.role === "admin" ? "Administrator" : auth.user_id;
+  $("setEmail").textContent = auth.email; $("setId").textContent = auth.role === "admin" ? "Administrator" : "User ID · " + auth.user_id;
+  $("nav").innerHTML = NAV[auth.role].map(([k, t]) => `<a data-p="${k}" onclick="go('${k}')">${icon(k)}<span class="t">${t}</span></a>`).join("");
+  go(auth.role === "admin" ? "analytics" : "dashboard");
+}
+
+function go(p) {
+  if (call && p !== "call") return;  // finish the call first
+  page = p;
+  document.querySelectorAll(".page").forEach(s => s.classList.toggle("hidden", s.id !== "p-" + p));
+  document.querySelectorAll("#nav a").forEach(a => a.classList.toggle("on", a.dataset.p === p));
+  $("title").textContent = p === "dashboard" ? `Hi, ${auth.email.split("@")[0]}` : TITLES[p];
+  $("topRight").innerHTML = p === "dashboard" ? `<span class="pill lav">Voice Agents Hub</span>` : "";
+  ({ dashboard: loadDashboard, agents: loadAgents, history: loadHistory, analytics: loadAdmin, calls: loadAdmin, users: loadAdmin }[p] || (() => {}))();
 }
 
 function logout() {
   stopCall(); auth = null; localStorage.removeItem("vca");
-  $("email").value = ""; $("password").value = ""; show("login");
-}
-
-function route() {
-  if (!auth) return show("login");
-  if (auth.role === "admin") { show("admin"); loadAdmin(); } else { show("home"); loadPersonas(); }
+  $("email").value = ""; $("password").value = ""; boot();
 }
 
 // ---------- login
-$("login").onsubmit = async e => {
-  e.preventDefault();  // Enter in either field submits the form natively
+$("loginForm").onsubmit = async e => {
+  e.preventDefault();
   $("loginErr").textContent = "";
   const email = $("email").value.trim(), password = $("password").value;
   if (!email || !password) return $("loginErr").textContent = "Enter both email and password.";
   try {
     auth = await api("/api/login", { email, password });
     localStorage.setItem("vca", JSON.stringify(auth));
-    route();
+    boot();
   } catch (e) { $("loginErr").textContent = e.message; }
 };
-$("pwToggle").onclick = () => {
-  const p = $("password"); p.type = p.type === "password" ? "text" : "password";
-  $("pwToggle").textContent = p.type === "password" ? "Show" : "Hide"; p.focus();
-};
+$("pwToggle").onclick = () => { const p = $("password"); p.type = p.type === "password" ? "text" : "password"; p.focus(); };
 
-// ---------- personas
+// ---------- user pages
 let personas = {};
-async function loadPersonas() {
-  const list = await api("/api/personas");
-  list.forEach(p => personas[p.id] = p);
-  $("personas").innerHTML = list.map(p => `
-    <div class="card persona" onclick="startCall('${p.id}')">
-      <div class="who-row"><div class="avatar">${esc(p.name[0])}</div>
-        <div><h3>${esc(p.name)}</h3><div class="muted">${esc(p.role)}</div></div></div>
-      <p class="muted">${esc(p.blurb)}</p>
-      <p style="margin-top:14px;font-size:13px">📞 Call ${esc(p.name)}</p></div>`).join("");
+async function getPersonas() {
+  if (!Object.keys(personas).length) (await api("/api/personas")).forEach(p => personas[p.id] = p);
+  return Object.values(personas);
+}
+const agentCard = p => `
+  <div class="card agent">
+    <div class="top">${avatar(p.id, 56)}<span class="pill"><span class="d"></span>Online</span></div>
+    <div class="role">${esc(p.role)}</div><div class="name">${esc(p.name)}</div>
+    <p>${esc(p.blurb)}</p>
+    <button class="btn primary block" onclick="startCall('${p.id}')">${icon("calls")}Start call</button>
+  </div>`;
+
+async function loadDashboard() {
+  const [list, calls] = await Promise.all([getPersonas(), api("/api/me/calls")]);
+  $("dAgentsGrid").innerHTML = list.map(agentCard).join("");
+  $("dAgents").textContent = list.length; $("dCalls").textContent = calls.length;
+  $("dMinutes").innerHTML = `${Math.round(calls.reduce((s, c) => s + (c.duration || 0), 0) / 60)}<small> min</small>`;
+  const rated = calls.filter(c => c.rating);
+  $("dRating").innerHTML = rated.length ? `${(rated.reduce((s, c) => s + c.rating, 0) / rated.length).toFixed(1)}<small> / 5</small>` : "–";
+  $("dRecent").innerHTML = calls.slice(0, 5).map(c => `<tr class="row" onclick="go('history');openHistory('${esc(c.id)}')">
+      <td><div class="agentcell">${avatar(c.persona, 30)}${esc(c.persona_name)}</div></td>
+      <td class="muted">${fmt(c.started_at)}</td><td class="muted">${dur(c.duration)}</td><td>${stars(c.rating)}</td></tr>`).join("")
+    || `<tr><td class="muted" style="border:0;padding:16px">No calls yet. Pick an agent above and say hi.</td></tr>`;
 }
 
-// ---------- voice: pick the most natural-sounding voice for the persona
+async function loadAgents() { $("agentsGrid").innerHTML = (await getPersonas()).map(agentCard).join(""); }
+
+let openHist = null;
+async function loadHistory() {
+  const calls = await api("/api/me/calls");
+  $("histRows").innerHTML = calls.map(c => `<tr class="row ${c.id === openHist ? "sel" : ""}" data-id="${esc(c.id)}" onclick="openHistory('${esc(c.id)}')">
+      <td><div class="agentcell">${avatar(c.persona, 30)}${esc(c.persona_name)}</div></td>
+      <td class="muted">${fmt(c.started_at)}</td><td class="muted">${dur(c.duration)}</td><td>${stars(c.rating)}</td></tr>`).join("")
+    || `<tr><td colspan="4" class="muted">No calls yet.</td></tr>`;
+}
+async function openHistory(id) {
+  openHist = id; await getPersonas();
+  document.querySelectorAll("#histRows tr").forEach(r => r.classList.toggle("sel", r.dataset.id === id));
+  const calls = await api("/api/me/calls"), c = calls.find(x => x.id === id); if (!c) return;
+  const { messages } = await api(`/api/me/calls/${id}`);
+  $("histSplit").classList.add("open"); $("histDetail").classList.remove("hidden");
+  $("histDetail").innerHTML = `
+    <div class="panel-head"><div class="agentcell">${avatar(c.persona, 40)}<div>${esc(c.persona_name)}
+      <div class="muted small" style="font-weight:600">${fmt(c.started_at)} · ${dur(c.duration)}</div></div></div>
+      <a href="#" class="muted small" onclick="closeHistory();return false">Close</a></div>
+    <div class="bubbles">${messages.map(m => `<div class="bubble ${m.role === "user" ? "me" : ""}">
+      <span class="who">${m.role === "user" ? "You" : esc(personas[c.persona]?.name || "Agent")}</span>${esc(m.text)}</div>`).join("")}</div>`;
+}
+function closeHistory() {
+  openHist = null; $("histDetail").classList.add("hidden"); $("histSplit").classList.remove("open");
+  document.querySelectorAll("#histRows tr").forEach(r => r.classList.remove("sel"));
+}
+
+// ---------- browser voice (fallback only)
 function pickVoice(gender) {
   const voices = speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang));
   const female = /aria|jenny|sonia|libby|neerja|natasha|emma|ava|zira|samantha|heera|google us english|\bfemale/i;
@@ -208,25 +520,36 @@ function pickVoice(gender) {
 }
 speechSynthesis.onvoiceschanged = () => call && (call.voice = pickVoice(call.persona.voice));
 
-// ---------- call (Web Speech API: browser STT + TTS)
+// ---------- call (browser speech-to-text, server neural voice)
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const FILLERS = ["Hmm, one sec.", "Okay, let me see.", "Right, okay.", "Sure, just a moment.", "Mm, okay."];
-let call = null, rec = null, pending = 0, busy = false, muted = false, heard = "", silenceTimer = null, timerId = null;
+let call = null, rec = null, pending = 0, busy = false, muted = false, speakerOff = false, heard = "", silenceTimer = null, timerId = null;
+$("wave").innerHTML = Array.from({ length: 28 }, (_, i) =>
+  `<span style="--h:${10 + Math.round(30 * Math.abs(Math.sin(i * 1.7)))}px;animation-delay:${(i % 7) * -0.13}s"></span>`).join("");
 
-function setState(cls, text) { $("stage").className = "stage " + cls; $("state").textContent = text; }
+const STATE_PILL = { listening: "lav", speaking: "", thinking: "grey", "": "grey" };
+function setState(cls, text) {
+  $("statusWrap").className = "pill " + (STATE_PILL[cls] ?? "grey");
+  $("stage").className = cls; $("wave").className = "wave " + cls; $("state").textContent = text;
+}
 function addMsg(me, text) {
-  $("transcript").insertAdjacentHTML("beforeend", `<div class="bubble ${me ? "me" : ""}">${esc(text)}</div>`);
+  $("transcript").insertAdjacentHTML("beforeend",
+    `<div class="bubble ${me ? "me" : ""}"><span class="who">${me ? "You" : esc(call?.persona.name || "")}</span>${esc(text)}</div>`);
   $("transcript").scrollTop = 1e9;
 }
 
 async function startCall(id) {
+  await getPersonas();
   const p = personas[id];
   try { await navigator.mediaDevices?.getUserMedia({ audio: true }); } catch { /* typing still works */ }
   const r = await api("/api/calls", { persona: id });
   call = { id: r.call_id, persona: p, start: Date.now(), voice: pickVoice(p.voice) };
-  show("call");
-  $("callAvatar").textContent = p.name[0]; $("callName").textContent = p.name; $("callRole").textContent = p.role;
-  $("transcript").innerHTML = ""; $("interim").textContent = ""; muted = false; busy = false; $("muteBtn").textContent = "Mute";
+  go("call");
+  $("callAvatar").innerHTML = avatar(id, 138); $("callName").textContent = p.name; $("callRole").textContent = p.role;
+  $("transcript").innerHTML = ""; $("interim").textContent = ""; $("timer").textContent = "00:00"; $("timerLabel").textContent = "Call active";
+  muted = false; busy = false; $("muteLbl").textContent = "Mute"; $("muteBtn").classList.remove("off");
+  $("callBtns").classList.remove("hidden"); $("rateBox").classList.add("hidden");
+  $("livePill").className = "pill"; $("livePill").innerHTML = '<span class="d"></span>Live'; $("typed").disabled = $("sendBtn").disabled = false;
   $("srWarn").classList.toggle("hidden", !!SR);
   timerId = setInterval(() => { const s = Math.floor((Date.now() - call.start) / 1000);
     $("timer").textContent = `${String(s / 60 | 0).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; }, 1000);
@@ -238,35 +561,34 @@ async function startCall(id) {
       for (const res of e.results) res.isFinal ? heard += res[0].transcript + " " : interim += res[0].transcript;
       $("interim").textContent = (heard + interim).trim();
       clearTimeout(silenceTimer);  // wait for a natural pause before replying
-      silenceTimer = setTimeout(() => { try { rec.stop(); } catch {} }, interim ? 1300 : 700);
+      silenceTimer = setTimeout(() => { try { rec.stop(); } catch {} }, interim ? 1000 : 450);
     };
     rec.onend = () => { clearTimeout(silenceTimer); const t = heard.trim(); heard = ""; t ? send(t) : listen(); };
-    rec.onerror = e => { if (e.error === "not-allowed") { muted = true; setState("", "Microphone blocked. Type instead."); } };
+    rec.onerror = e => { if (e.error === "not-allowed") { muted = true; setState("", "Microphone blocked, type instead"); } };
   }
-  // small "ring... pick up" delay feels like a real call
-  setState("thinking", "ringing…");
+  setState("thinking", "Ringing…");  // short ring before pick-up, like a real call
   setTimeout(() => { if (call) { addMsg(false, r.greeting); speak(r.greeting); } }, 900);
 }
 
 function listen() {
-  if (!call || pending || busy || muted) return;
-  if (!rec) return setState("", "Your turn. Type below.");
-  setState("listening", "listening…");
+  if (!call || pending || busy || muted || call.ending) return;
+  if (!rec) return setState("", "Your turn, type below");
+  setState("listening", "Listening");
   try { rec.start(); } catch { /* already running */ }
 }
 
-// Neural human voice streamed from the server (edge-tts). Clips play in order; the audio starts downloading
-// immediately, so a reply is buffered while a filler is still playing. Falls back to the browser voice on error.
+// Neural voice streamed from the server. Clips play in order and start downloading immediately,
+// so a reply is buffered while a filler is still playing. Falls back to the browser voice on error.
 let queue = Promise.resolve(), current = null;
 function speak(text) {
   if (!call) return;
   const c = call; pending++;
   const a = new Audio(`/api/tts?persona=${c.persona.id}&token=${encodeURIComponent(auth.token)}&text=${encodeURIComponent(text)}`);
-  a.preload = "auto";
+  a.preload = "auto"; a.muted = speakerOff;
   queue = queue.then(() => new Promise(done => {
     if (call !== c) return done();
-    current = a;
-    a.onplaying = () => setState("speaking", `${c.persona.name} is speaking…`);
+    current = a; a.muted = speakerOff;
+    a.onplaying = () => setState("speaking", `${c.persona.name} is speaking`);
     a.onended = done;
     const fallback = () => { a.onended = a.onerror = null; browserSpeak(text).then(done); };
     a.onerror = fallback;
@@ -277,9 +599,10 @@ function speak(text) {
 function browserSpeak(text) {
   return new Promise(done => {
     if (!call) return done();
-    setState("speaking", `${call.persona.name} is speaking…`);
+    setState("speaking", `${call.persona.name} is speaking`);
     const u = new SpeechSynthesisUtterance(text);
     if (call.voice) u.voice = call.voice;
+    u.volume = speakerOff ? 0 : 1;
     u.onend = u.onerror = done;
     speechSynthesis.speak(u);
   });
@@ -288,14 +611,17 @@ function browserSpeak(text) {
 function hush() { current?.pause(); speechSynthesis.cancel(); queue = Promise.resolve(); pending = 0; }
 
 async function send(text) {
-  if (!call || busy) return;
-  busy = true; $("interim").textContent = ""; addMsg(true, text); setState("thinking", `${call.persona.name} is thinking…`);
+  if (!call || busy || call.ending) return;
+  busy = true; $("interim").textContent = ""; addMsg(true, text); setState("thinking", `${call.persona.name} is thinking`);
   const filler = setTimeout(() => busy && call && speak(pick(FILLERS)), 1500);  // fill the silence like a person would
   try {
     const r = await api(`/api/calls/${call.id}/say`, { text });
     clearTimeout(filler); busy = false;
     if (!call) return;
-    addMsg(false, r.reply); speak(r.reply);
+    addMsg(false, r.reply);
+    if (r.end) call.ending = true;  // agent said goodbye: hang up once the last words are spoken
+    speak(r.reply);
+    if (r.end) { const c = call; queue = queue.then(() => call === c && hangUp()); }
   } catch (e) { clearTimeout(filler); busy = false; addMsg(false, "(" + e.message + ")"); listen(); }
 }
 
@@ -307,56 +633,111 @@ function stopCall() {
   api(`/api/calls/${id}/end`, {}).catch(() => {});
 }
 
-$("endBtn").onclick = () => { stopCall(); route(); };
+// end of call (agent hung up or user pressed End): show a quick star rating
+let ratedCall = null;
+function hangUp() {
+  if (!call) return;
+  ratedCall = call.id; $("rateName").textContent = call.persona.name;
+  stopCall();
+  setState("", "Call ended"); $("timerLabel").textContent = "Call ended ·"; $("interim").textContent = "";
+  $("typed").disabled = $("sendBtn").disabled = true;
+  $("callBtns").classList.add("hidden"); $("rateBox").classList.remove("hidden");
+  $("livePill").className = "pill grey"; $("livePill").innerHTML = "Ended";
+  $("starBtns").innerHTML = [1, 2, 3, 4, 5].map(n => `<button onclick="rate(${n})" onmouseenter="hoverStars(${n})" onmouseleave="hoverStars(0)">★</button>`).join("");
+}
+function hoverStars(n) { [...$("starBtns").children].forEach((b, i) => b.classList.toggle("on", i < n)); }
+async function rate(n) { hoverStars(n); await api(`/api/calls/${ratedCall}/rate`, { rating: n }).catch(() => {}); setTimeout(() => go("dashboard"), 500); }
+
+$("endBtn").onclick = hangUp;
 $("muteBtn").onclick = () => {
-  muted = !muted; $("muteBtn").textContent = muted ? "Unmute" : "Mute";
-  if (muted) { try { rec?.abort(); } catch {} setState("", "muted"); } else listen();
+  muted = !muted; $("muteLbl").textContent = muted ? "Unmute" : "Mute"; $("muteBtn").classList.toggle("off", muted);
+  if (muted) { try { rec?.abort(); } catch {} setState("", "Muted"); } else listen();
 };
-// tap the avatar to interrupt, like talking over someone
-$("stage").onclick = () => { if (pending) { hush(); listen(); } };
-$("typed").onkeydown = e => { if (e.key === "Enter" && e.target.value.trim()) {
-  try { rec?.abort(); } catch {} send(e.target.value.trim()); e.target.value = ""; } };
+$("spkBtn").onclick = () => {
+  speakerOff = !speakerOff; if (current) current.muted = speakerOff;
+  $("spkLbl").textContent = speakerOff ? "Speaker off" : "Speaker"; $("spkBtn").classList.toggle("off", speakerOff);
+};
+$("stage").onclick = () => { if (pending) { hush(); listen(); } };  // tap to interrupt
+const sendTyped = () => { const v = $("typed").value.trim(); if (!v) return; try { rec?.abort(); } catch {} send(v); $("typed").value = ""; };
+$("typed").onkeydown = e => { if (e.key === "Enter") sendTyped(); };
+$("sendBtn").onclick = sendTyped;
 window.addEventListener("beforeunload", () => call && fetch(`/api/calls/${call.id}/end`,
   { method: "POST", keepalive: true, headers: { Authorization: "Bearer " + auth.token } }));
 
 // ---------- admin
 let openCall = null;
 async function loadAdmin() {
-  if (auth?.role !== "admin" || $("admin").classList.contains("hidden")) return;
+  if (auth?.role !== "admin" || !["analytics", "calls", "users"].includes(page)) return;
   const d = await api("/api/admin/overview");
-  $("sUsers").textContent = d.stats.users; $("sCalls").textContent = d.stats.calls;
-  $("sActive").textContent = d.stats.active; $("sMsgs").textContent = d.stats.messages;
-  $("callRows").innerHTML = d.calls.map(c => `<tr class="click" onclick="openDetail('${esc(c.id)}')">
-    <td><span class="dot ${c.status}"></span>${c.status}</td><td>${esc(c.id)}</td><td>${esc(c.email || c.user_id)}</td>
-    <td>${esc(c.persona_name)}</td><td class="hide-sm">${fmt(c.started_at)}</td><td>${c.msg_count}</td></tr>`).join("")
+  // analytics
+  $("aAgents").innerHTML = `${d.agents.length}<small> · ${d.stats.active} live</small>`;
+  $("aCalls").textContent = d.stats.calls.toLocaleString();
+  $("aLatency").innerHTML = d.stats.latency_ms ? `${d.stats.latency_ms}<small> ms</small>` : "–";
+  $("aRating").innerHTML = d.stats.rating ? `${d.stats.rating.toFixed(1)}<small> / 5 ★</small>` : `–<small> no ratings</small>`;
+  drawChart(d.volume);
+  const sys = d.system;
+  $("sys").innerHTML = [
+    ["LLM replies OK", `${sys.llm_ok}%`, sys.llm_ok],
+    ["Knowledge chunks (RAG)", sys.rag_docs, Math.min(100, sys.rag_docs * 5)],
+    ["Voice clips cached", sys.tts_cached, Math.min(100, sys.tts_cached / 3)],
+  ].map(([k, v, w]) => `<div class="sys-row"><div class="top"><span>${k}</span><span>${v}</span></div><div class="bar"><i style="width:${w}%"></i></div></div>`).join("")
+    + `<p class="faint small" style="margin-top:14px">Model: ${esc(sys.llm)}</p>`;
+  $("agentRows").innerHTML = d.agents.map(a => `<tr>
+    <td><div class="agentcell">${avatar(a.id, 30)}<div>${esc(a.name)}<div class="faint small" style="font-weight:600">${esc(a.role)}</div></div></div></td>
+    <td>${a.calls}</td><td class="muted">${dur(a.duration)}</td><td class="muted">${a.latency_ms ? Math.round(a.latency_ms) + " ms" : "–"}</td>
+    <td>${stars(a.rating)}</td><td>${a.live ? `<span class="pill lav"><span class="d"></span>In call</span>` : `<span class="pill"><span class="d"></span>Online</span>`}</td></tr>`).join("");
+  // calls + users
+  $("callRows").innerHTML = d.calls.map(c => `<tr class="row ${c.id === openCall ? "sel" : ""}" data-id="${esc(c.id)}" onclick="openDetail('${esc(c.id)}')">
+    <td>${c.status === "active" ? `<span class="pill lav"><span class="d"></span>Live</span>` : `<span class="pill grey">Ended</span>`}</td>
+    <td>${esc(c.email || c.user_id)}</td><td><div class="agentcell">${avatar(c.persona, 26)}${esc(c.persona_name)}</div></td>
+    <td class="muted hide-open">${fmt(c.started_at)}</td><td class="muted hide-open">${c.msg_count}</td><td>${stars(c.rating)}</td></tr>`).join("")
     || `<tr><td colspan="6" class="muted">No calls yet.</td></tr>`;
-  $("userRows").innerHTML = d.users.map(u => `<tr><td>${esc(u.id)}</td><td>${esc(u.email)}</td>
-    <td>${fmt(u.created_at)}</td><td>${u.call_count}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">No users yet.</td></tr>`;
+  $("userRows").innerHTML = d.users.map(u => `<tr><td><div class="agentcell"><span class="initial">${esc(u.email[0].toUpperCase())}</span>${esc(u.email)}</div></td>
+    <td class="muted">${esc(u.id)}</td><td class="muted">${fmt(u.created_at)}</td><td>${u.call_count}</td></tr>`).join("")
+    || `<tr><td colspan="4" class="muted">No users yet.</td></tr>`;
   if (openCall && d.calls.find(c => c.id === openCall)?.status === "active") openDetail(openCall); // live-follow active calls
+}
+
+function drawChart(vol) {
+  const W = 600, H = 170, pad = 12, max = Math.max(4, ...vol.map(v => v.calls));
+  const pts = vol.map((v, i) => [pad + i * (W - 2 * pad) / (vol.length - 1), H - pad - (v.calls / max) * (H - 2 * pad - 10)]);
+  let d = `M${pts[0][0]},${pts[0][1]}`;
+  for (let i = 1; i < pts.length; i++) {  // smooth curve through the points
+    const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], cx = (x0 + x1) / 2;
+    d += ` C${cx},${y0} ${cx},${y1} ${x1},${y1}`;
+  }
+  const grid = [0.25, 0.5, 0.75].map(f => `<line x1="0" x2="${W}" y1="${pad + f * (H - 2 * pad)}" y2="${pad + f * (H - 2 * pad)}" stroke="#EEF3F2" stroke-width="1"/>`).join("");
+  $("chart").innerHTML = `<defs><linearGradient id="fillg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#5CC6A7" stop-opacity=".35"/><stop offset="1" stop-color="#5CC6A7" stop-opacity="0"/></linearGradient></defs>
+    ${grid}<path d="${d} L${pts.at(-1)[0]},${H} L${pts[0][0]},${H} Z" fill="url(#fillg)"/>
+    <path d="${d}" fill="none" stroke="#3BAA89" stroke-width="2.5" vector-effect="non-scaling-stroke"/>
+    ${pts.map(([x, y], i) => vol[i].calls ? `<circle cx="${x}" cy="${y}" r="3.5" fill="#fff" stroke="#3BAA89" stroke-width="2" vector-effect="non-scaling-stroke"><title>${vol[i].calls} calls</title></circle>` : "").join("")}`;
+  $("chartLabels").innerHTML = vol.filter((_, i) => i % 2 === 1).map(v =>
+    `<span>${new Date(v.day * 1000).toLocaleDateString([], { month: "short", day: "numeric" })}</span>`).join("");
 }
 
 async function openDetail(id) {
   openCall = id;
+  document.querySelectorAll("#callRows tr").forEach(r => r.classList.toggle("sel", r.dataset.id === id));
   const { call: c, messages } = await api(`/api/admin/calls/${id}`);
-  const dur = ((c.ended_at || Date.now() / 1000) - c.started_at) | 0;
-  $("detail").classList.remove("hidden");
+  const secs = ((c.ended_at || Date.now() / 1000) - c.started_at) | 0;
+  $("split").classList.add("open"); $("detail").classList.remove("hidden");
   $("detail").innerHTML = `
-    <div style="display:flex;justify-content:space-between"><b>${esc(c.persona_name)} · ${esc(c.id)}</b>
-      <a href="#" class="muted" onclick="openCall=null;$('detail').classList.add('hidden')">close</a></div>
-    <p class="muted">${esc(c.email)} (${esc(c.user_id)}) · ${c.status} · ${fmt(c.started_at)} · ${dur}s</p>
-    <div style="margin-top:12px">${messages.map(m => `<div class="msg">
-      <b>${m.role === "user" ? "User said" : "AI replied"}${m.provider ? ` · ${esc(m.provider)} · ${m.latency_ms} ms` : ""}</b>${esc(m.text)}
-      ${m.context ? `<details><summary>Retrieved knowledge (RAG)</summary><pre>${esc(m.context)}</pre></details>` : ""}</div>`).join("")}</div>`;
+    <div class="panel-head"><div class="agentcell">${avatar(c.persona, 40)}<div>${esc(c.persona_name)}
+      <div class="muted small" style="font-weight:600">${esc(c.email || "")} · ${esc(c.user_id)}</div>
+      <div class="faint small" style="font-weight:600">${fmt(c.started_at)} · ${dur(secs)} · ${c.status === "active" ? "Live" : "Ended"}${c.rating ? " · " + c.rating + "★" : ""}</div></div></div>
+      <a href="#" class="muted small" onclick="closeDetail();return false">Close</a></div>
+    <div class="bubbles">${messages.map(m => `<div class="bubble ${m.role === "user" ? "me" : ""}">
+      <span class="who">${m.role === "user" ? "User" : "Agent"}</span>${esc(m.text)}
+      ${m.provider ? `<span class="meta">${esc(m.provider)} · ${m.latency_ms} ms</span>` : ""}
+      ${m.context ? `<details><summary>Knowledge used</summary><pre>${esc(m.context)}</pre></details>` : ""}</div>`).join("")}</div>`;
 }
-
-document.querySelectorAll(".tabs a").forEach(a => a.onclick = () => {
-  document.querySelectorAll(".tabs a").forEach(x => x.classList.toggle("on", x === a));
-  $("tabCalls").classList.toggle("hidden", a.dataset.tab !== "calls");
-  $("tabUsers").classList.toggle("hidden", a.dataset.tab !== "users");
-});
+function closeDetail() {
+  openCall = null; $("detail").classList.add("hidden"); $("split").classList.remove("open");
+  document.querySelectorAll("#callRows tr").forEach(r => r.classList.remove("sel"));
+}
 setInterval(() => loadAdmin().catch(() => {}), 4000); // live monitoring
 
-route();
+boot();
 </script>
 </body>
 </html>

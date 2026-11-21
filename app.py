@@ -24,7 +24,7 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "1234")
 # ---------------------------------------------------------------- personas + knowledge (RAG source)
 PERSONAS = {
     "receptionist": {
-        "name": "Maya", "role": "Receptionist", "voice": "female", "tts": "en-US-AvaMultilingualNeural",
+        "name": "Maya", "role": "Receptionist", "voice": "female", "tts": "en-IN-NeerjaExpressiveNeural|+12%|+0Hz",
         "blurb": "Front desk at Brightside Dental. Books visits, answers questions on hours and prices.",
         "greeting": "Hi, Brightside Dental, this is Maya speaking. How can I help you today?",
         "prompt": "You are Maya, 28, the warm, upbeat receptionist at Brightside Dental Clinic. You've worked the front desk "
@@ -41,25 +41,41 @@ PERSONAS = {
         ],
     },
     "interviewer": {
-        "name": "Arjun", "role": "Interviewer", "voice": "male", "tts": "en-US-AndrewMultilingualNeural",
+        "name": "Arjun", "role": "Interviewer", "voice": "male", "tts": "en-IN-PrabhatNeural|+10%|-2Hz",
         "blurb": "Senior engineer running your screening for a Python Backend Developer role.",
         "greeting": "Hey, thanks for making the time! I'm Arjun, I'm one of the senior engineers here. So this is just a relaxed "
                     "screening chat for the Python backend role. Why don't you start by telling me a bit about yourself?",
-        "prompt": "You are Arjun, a friendly senior backend engineer doing a screening interview for a Python Backend Developer. "
-                  "You're relaxed and encouraging, like a good colleague, not a quiz machine. Ask exactly one question at a time. "
-                  "React genuinely to answers first (for example 'oh nice, FastAPI, good choice' or 'hmm, okay, interesting'), then follow up "
-                  "on something specific they said, or gently probe if an answer was vague. After about six questions, "
-                  "thank them warmly and explain the next steps.",
+        "prompt": "You are Arjun, a senior backend engineer running a 10-minute screening interview for a Python Backend Developer. "
+                  "You're warm and relaxed, like a good colleague, but you're genuinely assessing them. "
+                  "Each turn: a very short, genuine reaction to what they said (\"oh nice\", \"hmm, okay\", \"right, makes sense\"), "
+                  "then exactly ONE question. Build on details they mention (their projects, tools, numbers). "
+                  "If an answer is vague, ask one gentle follow-up (\"how did you actually measure that?\") before moving on. "
+                  "Never lecture, never explain the right answer, never give scores or feedback during the call. "
+                  "Match difficulty to their experience. If they say they need to go, wrap up politely.",
+        "stages": [  # what to cover after the candidate's Nth answer; the interview moves forward on its own
+            "They just introduced themselves. Ask about one recent project they're proud of and what exactly they built.",
+            "Dig into that project with one specific technical follow-up: a design choice, a hard bug, or how it would scale.",
+            "Core Python: ask one question that fits their background, e.g. asyncio versus threads, or how they handle concurrency.",
+            "Databases: ask one question, e.g. how they'd track down and fix a slow query, indexing, or the N+1 problem.",
+            "Design: ask one question, e.g. how they'd add caching or rate limiting to a busy API endpoint.",
+            "Ask one behavioural question, e.g. a production incident they handled or a disagreement with a teammate.",
+            "Say that's everything from your side, and ask if they have any questions about the role or the team.",
+            "Answer their question in one short sentence using the knowledge (or say you'll get back to them). Then, in the "
+            "same reply: thank them by name, say the next step is a short take-home and they'll hear back within a week, "
+            "say goodbye, and end the call.",
+        ],
         "knowledge": [
             "Role: Python Backend Developer, 2 to 5 years experience, hybrid in Pune, salary band 12 to 20 LPA.",
             "Tech stack: Python, FastAPI, PostgreSQL, Redis, Docker, AWS. Bonus: LLM and RAG experience.",
             "Interview topics: REST API design, async Python, database indexing, caching, testing, system design basics.",
             "Process: screening call, then a take-home assignment, then a technical round, then an HR round. Results within a week.",
+            "Team: 6 backend engineers and 2 frontend engineers, small and collaborative. Weekly demo day, on-call once every six weeks.",
+            "Work setup: hybrid, three days a week in the Pune office. Flexible hours and a learning budget of 30,000 rupees a year.",
             "Good follow-up questions: difference between threads and asyncio, how to fix an N+1 query, how to design rate limiting.",
         ],
     },
     "sales": {
-        "name": "Riya", "role": "Sales Rep", "voice": "female", "tts": "en-US-EmmaMultilingualNeural",
+        "name": "Riya", "role": "Sales Rep", "voice": "female", "tts": "en-IN-NeerjaExpressiveNeural|+16%|+10Hz",
         "blurb": "Account executive at Nimbus CRM. Learns your needs and books a demo.",
         "greeting": "Hi! This is Riya from Nimbus CRM. I hope I'm not catching you at a bad time? I just wanted to ask "
                     "quickly how your team keeps track of customers right now.",
@@ -78,14 +94,35 @@ PERSONAS = {
     },
 }
 VOICE_RULES = """You are on a live phone call, speaking out loud. Sound like a real person, not an assistant:
-- Talk casually with contractions (I'm, you'll, that's). Keep it short: usually 1 or 2 sentences, never more than 3.
+- KEEP IT SHORT. One or two short sentences, under 30 words in total. Real people on calls talk in short turns;
+  never give speeches, explanations or several points at once. If there's more to say, wait for them to respond.
+- Talk casually with contractions (I'm, you'll, that's).
 - Start with a natural reaction when it fits ("Oh sure", "Got it", "Ah okay", "Hmm, good question"), but vary it and don't use one every time.
 - Sound spontaneous: now and then (not every reply) use a light filler like "um", "uh", "so", "you know", "yeah", or a short pause with "...".
 - Ask one thing at a time. Use the caller's name once you know it, but not in every reply.
 - Say numbers the way people speak them ("twelve hundred rupees", "nine to six").
 - No lists, markdown, emojis or symbols. Never say you're an AI, a language model or an assistant; you are your character.
 - If the caller's words seem garbled (speech recognition errors), guess sensibly or casually ask them to repeat.
-- If the knowledge below doesn't cover something, say you'll check with the team rather than making it up."""
+- If the knowledge below doesn't cover something, say you'll check with the team rather than making it up.
+- When the conversation is clearly finished (they say bye, they're all set, or you've wrapped up), say a short warm
+  goodbye and put [END_CALL] at the very end of that reply. Never use [END_CALL] otherwise."""
+
+END_TOKEN = re.compile(r"\[?\s*END[_ ]?CALL\s*\]?", re.I)
+
+
+def shorten(text, max_words=28):
+    """Safety net for long replies: keep the first sentences up to ~max_words, but never drop the closing question."""
+    text = re.sub(r"\s+", " ", text).strip()
+    sents = [x.strip() for x in re.findall(r"[^.!?]+[.!?]*", text) if x.strip()]
+    out, n = [], 0
+    for x in sents:
+        if out and n + len(x.split()) > max_words:
+            break
+        out.append(x)
+        n += len(x.split())
+    if len(out) < len(sents):  # something was cut: keep the reaction + the final sentence (the actual ask)
+        out = out[:1] + [sents[-1]]
+    return " ".join(out)
 
 # ---------------------------------------------------------------- database (SQLite)
 SCHEMA = """
@@ -110,6 +147,8 @@ def q(sql, args=(), one=False):
 
 with sqlite3.connect(DB_PATH) as _c:
     _c.executescript(SCHEMA)
+    if "rating" not in [r[1] for r in _c.execute("PRAGMA table_info(calls)")]:  # 1-5 stars from the caller
+        _c.execute("ALTER TABLE calls ADD COLUMN rating INTEGER")
 
 # ---------------------------------------------------------------- auth (stateless HMAC tokens)
 def hash_pw(pw, salt=None):
@@ -143,13 +182,38 @@ def require_admin(sub=Depends(current_subject)):
 
 
 # ---------------------------------------------------------------- RAG (local Chroma)
+class Embedder:
+    """all-MiniLM-L6-v2 run directly on ONNX: same vectors as Chroma's default, ~5 ms instead of ~350 ms."""
+
+    def __init__(self):
+        import numpy as np, onnxruntime as ort
+        from tokenizers import Tokenizer
+        d = Path.home() / ".cache/chroma/onnx_models/all-MiniLM-L6-v2/onnx"
+        if not (d / "model.onnx").exists():  # first run: let Chroma download the model
+            from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
+            DefaultEmbeddingFunction()(["warmup"])
+        self.np, self.tok = np, Tokenizer.from_file(str(d / "tokenizer.json"))
+        self.tok.enable_truncation(256)
+        self.tok.enable_padding()
+        self.sess = ort.InferenceSession(str(d / "model.onnx"), providers=["CPUExecutionProvider"])
+
+    def __call__(self, texts):
+        np, enc = self.np, self.tok.encode_batch(texts)
+        ids = np.array([e.ids for e in enc], dtype=np.int64)
+        mask = np.array([e.attention_mask for e in enc], dtype=np.int64)
+        out = self.sess.run(None, {"input_ids": ids, "attention_mask": mask, "token_type_ids": np.zeros_like(ids)})[0]
+        v = (out * mask[..., None]).sum(1) / mask.sum(1, keepdims=True)
+        return (v / np.linalg.norm(v, axis=1, keepdims=True)).tolist()
+
+
 try:
     import chromadb
 
+    embed = Embedder()
     kb = chromadb.PersistentClient(path=str(DATA / "chroma")).get_or_create_collection("knowledge")
     for pid, p in PERSONAS.items():
-        kb.upsert(ids=[f"{pid}-{i}" for i in range(len(p["knowledge"]))],
-                  documents=p["knowledge"], metadatas=[{"persona": pid}] * len(p["knowledge"]))
+        kb.upsert(ids=[f"{pid}-{i}" for i in range(len(p["knowledge"]))], documents=p["knowledge"],
+                  embeddings=embed(p["knowledge"]), metadatas=[{"persona": pid}] * len(p["knowledge"]))
 except Exception as e:  # app still works without RAG
     print("RAG disabled:", e)
     kb = None
@@ -159,7 +223,7 @@ def retrieve(persona, query, k=3):
     if not kb:
         return []
     try:
-        return kb.query(query_texts=[query], n_results=k, where={"persona": persona})["documents"][0]
+        return kb.query(query_embeddings=embed([query]), n_results=k, where={"persona": persona})["documents"][0]
     except Exception as e:
         print("RAG query failed:", e)
         return []
@@ -179,18 +243,20 @@ def gemini_chat(model, system, history):
     contents = [{"role": "model" if m["role"] == "ai" else "user", "parts": [{"text": m["text"]}]} for m in history]
     r = _clients["gemini"].models.generate_content(
         model=model, contents=contents,
-        config=types.GenerateContentConfig(system_instruction=system, temperature=0.85, max_output_tokens=1024))
+        config=types.GenerateContentConfig(system_instruction=system, temperature=0.85, max_output_tokens=200))
     return r.text
 
 
 def groq_chat(model, system, history):
     from groq import Groq
     if "groq" not in _clients:
-        _clients["groq"] = Groq(api_key=os.getenv("GROQ_API_KEY"), timeout=TIMEOUT, max_retries=0)
+        import httpx
+        _clients["groq"] = Groq(api_key=os.getenv("GROQ_API_KEY"), timeout=TIMEOUT, max_retries=0,
+                                http_client=httpx.Client(limits=httpx.Limits(keepalive_expiry=120)))
     msgs = [{"role": "system", "content": system}] + [
         {"role": "assistant" if m["role"] == "ai" else "user", "content": m["text"]} for m in history]
     extra = {"reasoning_effort": "low"} if "gpt-oss" in model else {}
-    r = _clients["groq"].chat.completions.create(model=model, messages=msgs, temperature=0.85, max_tokens=1024, **extra)
+    r = _clients["groq"].chat.completions.create(model=model, messages=msgs, temperature=0.85, max_tokens=200, **extra)
     return re.sub(r"<think>.*?</think>", "", r.choices[0].message.content or "", flags=re.S)
 
 
@@ -260,22 +326,23 @@ def login(b: Login):
         raise HTTPException(401, "Wrong password")
     if not user:  # auto-register
         user = {"id": "U-" + uuid.uuid4().hex[:8].upper(), "email": email}
-        q("INSERT INTO users VALUES (?,?,?,?)", (user["id"], email, hash_pw(b.password), time.time()))
+        q("INSERT INTO users (id, email, pw_hash, created_at) VALUES (?,?,?,?)", (user["id"], email, hash_pw(b.password), time.time()))
     return {"token": make_token(user["id"]), "role": "user", "email": email, "user_id": user["id"]}
 
 
-TTS_RATE = os.getenv("TTS_RATE", "+12%")  # speaking speed: "+0%" normal, "+20%" brisk
 TTS_CACHE = {}  # (voice, text) -> mp3 bytes; greetings and fillers become instant after first use
 FILLERS = ["Hmm, one sec.", "Okay, let me see.", "Right, okay.", "Sure, just a moment.", "Mm, okay."]  # keep in sync with index.html
 
 
-async def synth(text, voice, tries=3):
-    """Yield mp3 chunks from Microsoft neural TTS; retries the service's occasional empty responses."""
+async def synth(text, spec, tries=3):
+    """Yield mp3 chunks from Microsoft neural TTS. spec = "voice|rate|pitch" (per persona).
+    Retries the service's occasional empty responses."""
     import edge_tts
+    voice, rate, pitch = spec.split("|")
     for attempt in range(tries):
         sent = False
         try:
-            async for c in edge_tts.Communicate(text, voice, rate=TTS_RATE).stream():
+            async for c in edge_tts.Communicate(text, voice, rate=rate, pitch=pitch).stream():
                 if c["type"] == "audio":
                     sent = True
                     yield c["data"]
@@ -284,6 +351,50 @@ async def synth(text, voice, tries=3):
             if sent or attempt == tries - 1:  # can't restart a half-sent stream
                 print("TTS failed:", voice, repr(text[:40]), e)
                 return
+
+
+async def hedged_synth(text, voice, hedge_after=1.3):
+    """Race a second TTS request if the first hasn't produced audio quickly; stream whichever starts first.
+    Cuts the service's random 1.5-3 s connection spikes."""
+    import asyncio
+    queues, tasks, getters = [], [], {}
+
+    def launch():
+        q = asyncio.Queue()
+
+        async def run():
+            try:
+                async for c in synth(text, voice):
+                    await q.put(c)
+            finally:
+                await q.put(None)
+        queues.append(q)
+        tasks.append(asyncio.create_task(run()))
+        getters[asyncio.create_task(q.get())] = len(queues) - 1
+
+    launch()
+    try:
+        while getters:
+            done, _ = await asyncio.wait(getters, timeout=None if len(queues) > 1 else hedge_after,
+                                         return_when=asyncio.FIRST_COMPLETED)
+            if not done:  # first request is slow: hedge
+                launch()
+                continue
+            g = done.pop()
+            i = getters.pop(g)
+            if g.result() is None:  # this attempt produced nothing
+                if len(queues) == 1:
+                    launch()
+                continue
+            for other in getters:
+                other.cancel()
+            yield g.result()
+            while (c := await queues[i].get()) is not None:
+                yield c
+            return
+    finally:
+        for t in tasks:
+            t.cancel()
 
 
 @app.on_event("startup")
@@ -298,6 +409,8 @@ async def warm_tts_cache():
             if audio:
                 TTS_CACHE[(voice, text)] = audio
     jobs = [render(p["tts"], t) for p in PERSONAS.values() for t in [p["greeting"], *FILLERS]]
+    from starlette.concurrency import run_in_threadpool
+    jobs.append(run_in_threadpool(lambda: ask_llm("Reply with: ok", [{"role": "user", "text": "hi"}])))
     app.state.warmup = asyncio.ensure_future(asyncio.gather(*jobs))  # runs in background; server starts immediately
 
 
@@ -312,7 +425,7 @@ async def tts(text: str, persona: str, token: str):
 
     async def stream():
         chunks = []
-        async for c in synth(text, voice):
+        async for c in hedged_synth(text, voice):
             chunks.append(c)
             yield c
         if chunks and len(TTS_CACHE) < 300:
@@ -344,7 +457,7 @@ def start_call(b: Start, sub=Depends(current_subject)):
         raise HTTPException(400, "Unknown persona")
     call_id = "C-" + uuid.uuid4().hex[:10].upper()
     now = time.time()
-    q("INSERT INTO calls VALUES (?,?,?,?,?,?)", (call_id, sub, b.persona, "active", now, None))
+    q("INSERT INTO calls (id, user_id, persona, status, started_at, ended_at) VALUES (?,?,?,?,?,?)", (call_id, sub, b.persona, "active", now, None))
     greeting = PERSONAS[b.persona]["greeting"]
     q("INSERT INTO messages (call_id, role, text, created_at) VALUES (?,?,?,?)", (call_id, "ai", greeting, now))
     return {"call_id": call_id, "greeting": greeting}
@@ -363,14 +476,23 @@ def say(call_id: str, b: Say, sub=Depends(current_subject)):
     p = PERSONAS[call["persona"]]
     docs = retrieve(call["persona"], text)
     system = f"{p['prompt']}\n\n{VOICE_RULES}\n\nKnowledge:\n" + "\n".join(f"- {d}" for d in docs)
+    if p.get("stages"):  # structured conversation (interviewer): tell the model where we are
+        answers = q("SELECT COUNT(*) n FROM messages WHERE call_id=? AND role='user'", (call_id,), one=True)["n"]
+        stage = p["stages"][min(answers, len(p["stages"])) - 1]
+        system += (f"\n\nInterview progress: answer {answers} of {len(p['stages'])}. YOUR TASK FOR THIS REPLY "
+                   f"(do it now, don't skip it, don't go back to earlier topics): {stage}")
     history = q("SELECT role, text FROM messages WHERE call_id=? ORDER BY id", (call_id,))[-12:]
 
     t0 = time.time()
     reply, provider = ask_llm(system, history)
     ms = int((time.time() - t0) * 1000)
+    end = bool(END_TOKEN.search(reply))
+    reply = shorten(END_TOKEN.sub("", reply), 45 if end else 28) or "Sorry, could you say that again?"  # goodbye may run longer
     q("INSERT INTO messages (call_id, role, text, context, provider, latency_ms, created_at) VALUES (?,?,?,?,?,?,?)",
       (call_id, "ai", reply, "\n".join(docs), provider, ms, time.time()))
-    return {"reply": reply, "provider": provider, "latency_ms": ms}
+    if end:  # agent said goodbye: close the call; the browser hangs up after the last words are spoken
+        q("UPDATE calls SET status='ended', ended_at=? WHERE id=?", (time.time(), call_id))
+    return {"reply": reply, "provider": provider, "latency_ms": ms, "end": end}
 
 
 @app.post("/api/calls/{call_id}/end")
@@ -380,18 +502,81 @@ def end_call(call_id: str, sub=Depends(current_subject)):
     return {"ok": True}
 
 
+class Rate(BaseModel):
+    rating: int
+
+
+@app.post("/api/calls/{call_id}/rate")
+def rate_call(call_id: str, b: Rate, sub=Depends(current_subject)):
+    own_call(call_id, sub)
+    q("UPDATE calls SET rating=? WHERE id=?", (max(1, min(5, b.rating)), call_id))
+    return {"ok": True}
+
+
+def close_stale_calls():
+    """Calls abandoned without "End call" (tab closed, crash) are closed after 5 min of silence."""
+    q("""UPDATE calls SET status='ended', ended_at=(SELECT MAX(created_at) FROM messages m WHERE m.call_id=calls.id)
+         WHERE status='active' AND COALESCE((SELECT MAX(created_at) FROM messages m WHERE m.call_id=calls.id), started_at) < ?""",
+      (time.time() - 300,))
+
+
+CALL_COLUMNS = """c.*, u.email, (SELECT COUNT(*) FROM messages m WHERE m.call_id=c.id) AS msg_count,
+                  CAST(COALESCE(c.ended_at, (SELECT MAX(created_at) FROM messages m WHERE m.call_id=c.id), c.started_at)
+                       - c.started_at AS INTEGER) AS duration"""
+
+
+def with_labels(rows):
+    for c in rows:
+        c["persona_name"] = persona_label(c["persona"])
+    return rows
+
+
+@app.get("/api/me/calls")
+def my_calls(sub=Depends(current_subject)):
+    close_stale_calls()
+    return with_labels(q(f"SELECT {CALL_COLUMNS} FROM calls c LEFT JOIN users u ON u.id=c.user_id "
+                         "WHERE c.user_id=? ORDER BY c.started_at DESC LIMIT 100", (sub,)))
+
+
+@app.get("/api/me/calls/{call_id}")
+def my_call(call_id: str, sub=Depends(current_subject)):
+    own_call(call_id, sub)
+    return {"messages": q("SELECT role, text, created_at FROM messages WHERE call_id=? ORDER BY id", (call_id,))}
+
+
 @app.get("/api/admin/overview")
 def admin_overview(_=Depends(require_admin)):
-    calls = q("""SELECT c.*, u.email, (SELECT COUNT(*) FROM messages m WHERE m.call_id=c.id) AS msg_count
-                 FROM calls c LEFT JOIN users u ON u.id=c.user_id ORDER BY c.started_at DESC LIMIT 200""")
+    close_stale_calls()
+    calls = with_labels(q(f"SELECT {CALL_COLUMNS} FROM calls c LEFT JOIN users u ON u.id=c.user_id "
+                          "ORDER BY c.started_at DESC LIMIT 200"))
     users = q("""SELECT u.id, u.email, u.created_at, COUNT(c.id) AS call_count FROM users u
                  LEFT JOIN calls c ON c.user_id=u.id GROUP BY u.id ORDER BY u.created_at DESC""")
-    for c in calls:
-        c["persona_name"] = persona_label(c["persona"])
-    return {"calls": calls, "users": users,
-            "stats": {"users": len(users), "calls": len(calls),
+    # analytics
+    day = 86400
+    today = int(time.time() // day)
+    per_day = {r["d"]: r["n"] for r in q("SELECT CAST(started_at / 86400 AS INTEGER) d, COUNT(*) n FROM calls "
+                                         "WHERE started_at > ? GROUP BY d", ((today - 13) * day,))}
+    volume = [{"day": (today - i) * day, "calls": per_day.get(today - i, 0)} for i in range(13, -1, -1)]
+    agents = []
+    for pid, p in PERSONAS.items():
+        a = q("""SELECT COUNT(*) calls, AVG(rating) rating, SUM(status='active') live,
+                        AVG(COALESCE(ended_at, started_at) - started_at) duration FROM calls WHERE persona=?""", (pid,), one=True)
+        lat = q("""SELECT AVG(latency_ms) ms FROM messages m JOIN calls c ON c.id=m.call_id
+                   WHERE c.persona=? AND m.latency_ms IS NOT NULL""", (pid,), one=True)["ms"]
+        agents.append({"id": pid, "name": p["name"], "role": p["role"], "calls": a["calls"], "live": a["live"] or 0,
+                       "rating": a["rating"], "duration": a["duration"], "latency_ms": lat})
+    recent = q("SELECT latency_ms, provider FROM messages WHERE latency_ms IS NOT NULL ORDER BY id DESC LIMIT 50")
+    ok = [r for r in recent if not (r["provider"] or "").startswith("error")]
+    rating = q("SELECT AVG(rating) r, COUNT(rating) n FROM calls", one=True)
+    return {"calls": calls, "users": users, "volume": volume, "agents": agents,
+            "system": {"llm": ok[0]["provider"] if ok else os.getenv("LLM_PROVIDER", "groq"),
+                       "llm_ok": round(100 * len(ok) / len(recent)) if recent else 100,
+                       "rag_docs": kb.count() if kb else 0, "tts_cached": len(TTS_CACHE)},
+            "stats": {"users": len(users), "calls": q("SELECT COUNT(*) n FROM calls", one=True)["n"],
                       "active": sum(c["status"] == "active" for c in calls),
-                      "messages": q("SELECT COUNT(*) n FROM messages", one=True)["n"]}}
+                      "messages": q("SELECT COUNT(*) n FROM messages", one=True)["n"],
+                      "latency_ms": round(sum(r["latency_ms"] for r in ok) / len(ok)) if ok else None,
+                      "rating": rating["r"], "ratings": rating["n"]}}
 
 
 @app.get("/api/admin/calls/{call_id}")
