@@ -3,7 +3,8 @@
 One file backend: auth, personas, RAG (Chroma), dual LLM (Groq + Gemini), neural TTS (edge-tts), SQLite, admin API.
 Run:  uvicorn app:app --reload
 """
-import hashlib, hmac, os, re, sqlite3, time, uuid
+import hashlib, hmac, json, os, re, sqlite3, threading, time, uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -27,9 +28,12 @@ PERSONAS = {
         "name": "Maya", "role": "Receptionist", "voice": "female", "tts": "en-IN-NeerjaExpressiveNeural|+12%|+0Hz",
         "blurb": "Front desk at Brightside Dental. Books visits, answers questions on hours and prices.",
         "greeting": "Hi, Brightside Dental, this is Maya speaking. How can I help you today?",
+        "greeting_named": "Hi {name}, Brightside Dental, this is Maya speaking. How can I help you today?",
         "prompt": "You are Maya, 28, the warm, upbeat receptionist at Brightside Dental Clinic. You've worked the front desk "
                   "for four years and genuinely like the patients. Help callers with appointments, hours, services and prices. "
-                  "When booking, naturally ask for their name and a time that works, then confirm it back to them. "
+                  "You manage the appointment book yourself: you can book, reschedule and cancel any slot within opening hours "
+                  "right away, no need to check with anyone. Get their name and a day and time, then confirm it back clearly "
+                  "(\"Done, you're booked for Monday at ten\"). "
                   "If someone mentions pain, sound sympathetic first and offer the earliest emergency slot.",
         "knowledge": [
             "Brightside Dental is open Monday to Friday 9am to 6pm and Saturday 10am to 2pm. Closed Sundays.",
@@ -45,6 +49,8 @@ PERSONAS = {
         "blurb": "Senior engineer running your screening for a Python Backend Developer role.",
         "greeting": "Hey, thanks for making the time! I'm Arjun, I'm one of the senior engineers here. So this is just a relaxed "
                     "screening chat for the Python backend role. Why don't you start by telling me a bit about yourself?",
+        "greeting_named": "Hey {name}, thanks for making the time! I'm Arjun, one of the senior engineers here. This is just a "
+                          "relaxed screening chat for the Python backend role. Why don't you start by telling me a bit about yourself?",
         "prompt": "You are Arjun, a senior backend engineer running a 10-minute screening interview for a Python Backend Developer. "
                   "You're warm and relaxed, like a good colleague, but you're genuinely assessing them. "
                   "Each turn: a very short, genuine reaction to what they said (\"oh nice\", \"hmm, okay\", \"right, makes sense\"), "
@@ -79,6 +85,8 @@ PERSONAS = {
         "blurb": "Account executive at Nimbus CRM. Learns your needs and books a demo.",
         "greeting": "Hi! This is Riya from Nimbus CRM. I hope I'm not catching you at a bad time? I just wanted to ask "
                     "quickly how your team keeps track of customers right now.",
+        "greeting_named": "Hi {name}! This is Riya from Nimbus CRM. I hope I'm not catching you at a bad time? I just wanted "
+                          "to ask quickly how your team keeps track of customers right now.",
         "prompt": "You are Riya, a curious, easygoing account executive at Nimbus CRM. You sell by listening, not pitching. "
                   "Find out their team size, current tool and biggest headache, one thing at a time, and relate to it "
                   "('ah yeah, spreadsheets get messy fast'). Handle objections honestly and lightly. If there's interest, "
@@ -103,7 +111,7 @@ VOICE_RULES = """You are on a live phone call, speaking out loud. Sound like a r
 - Say numbers the way people speak them ("twelve hundred rupees", "nine to six").
 - No lists, markdown, emojis or symbols. Never say you're an AI, a language model or an assistant; you are your character.
 - If the caller's words seem garbled (speech recognition errors), guess sensibly or casually ask them to repeat.
-- If the knowledge below doesn't cover something, say you'll check with the team rather than making it up.
+- If a fact (price, policy, detail) isn't in the knowledge below, say you'll check with the team rather than making it up.
 - When the conversation is clearly finished (they say bye, they're all set, or you've wrapped up), say a short warm
   goodbye and put [END_CALL] at the very end of that reply. Never use [END_CALL] otherwise."""
 
@@ -122,6 +130,9 @@ def shorten(text, max_words=28):
         n += len(x.split())
     if len(out) < len(sents):  # something was cut: keep the reaction + the final sentence (the actual ask)
         out = out[:1] + [sents[-1]]
+    if len(out) > 1 and not re.search(r"[.!?…]['\")]*$", out[-1]):  # never speak a half-finished sentence
+        print("dropped unfinished fragment:", repr(out[-1]))
+        out.pop()
     return " ".join(out)
 
 # ---------------------------------------------------------------- database (SQLite)
@@ -149,6 +160,13 @@ with sqlite3.connect(DB_PATH) as _c:
     _c.executescript(SCHEMA)
     if "rating" not in [r[1] for r in _c.execute("PRAGMA table_info(calls)")]:  # 1-5 stars from the caller
         _c.execute("ALTER TABLE calls ADD COLUMN rating INTEGER")
+    if "memory_done" not in [r[1] for r in _c.execute("PRAGMA table_info(calls)")]:  # call already summarised into memory
+        _c.execute("ALTER TABLE calls ADD COLUMN memory_done INTEGER DEFAULT 0")
+        _c.execute("UPDATE calls SET memory_done=1")  # don't back-process calls made before memory existed
+    if "name" not in [r[1] for r in _c.execute("PRAGMA table_info(users)")]:  # caller's name, learned on calls
+        _c.execute("ALTER TABLE users ADD COLUMN name TEXT")
+    _c.execute("""CREATE TABLE IF NOT EXISTS memories (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, persona TEXT,
+                                                       note TEXT, call_id TEXT, created_at REAL)""")
 
 # ---------------------------------------------------------------- auth (stateless HMAC tokens)
 def hash_pw(pw, salt=None):
@@ -234,7 +252,7 @@ _clients = {}
 TIMEOUT = float(os.getenv("LLM_TIMEOUT", "12"))  # seconds per model before falling back to the next
 
 
-def gemini_chat(model, system, history):
+def gemini_chat(model, system, history, max_tokens=200, temperature=0.85):
     from google import genai
     from google.genai import types
     if "gemini" not in _clients:
@@ -243,11 +261,11 @@ def gemini_chat(model, system, history):
     contents = [{"role": "model" if m["role"] == "ai" else "user", "parts": [{"text": m["text"]}]} for m in history]
     r = _clients["gemini"].models.generate_content(
         model=model, contents=contents,
-        config=types.GenerateContentConfig(system_instruction=system, temperature=0.85, max_output_tokens=200))
+        config=types.GenerateContentConfig(system_instruction=system, temperature=temperature, max_output_tokens=max_tokens))
     return r.text
 
 
-def groq_chat(model, system, history):
+def groq_chat(model, system, history, max_tokens=200, temperature=0.85):
     from groq import Groq
     if "groq" not in _clients:
         import httpx
@@ -256,7 +274,7 @@ def groq_chat(model, system, history):
     msgs = [{"role": "system", "content": system}] + [
         {"role": "assistant" if m["role"] == "ai" else "user", "content": m["text"]} for m in history]
     extra = {"reasoning_effort": "low"} if "gpt-oss" in model else {}
-    r = _clients["groq"].chat.completions.create(model=model, messages=msgs, temperature=0.85, max_tokens=200, **extra)
+    r = _clients["groq"].chat.completions.create(model=model, messages=msgs, temperature=temperature, max_tokens=max_tokens, **extra)
     return re.sub(r"<think>.*?</think>", "", r.choices[0].message.content or "", flags=re.S)
 
 
@@ -268,11 +286,11 @@ def provider_chain():
     return [(p, m) for p, m in chain if os.getenv(f"{p.upper()}_API_KEY")]
 
 
-def ask_llm(system, history):
+def ask_llm(system, history, **opts):
     errors = []
     for provider, model in provider_chain():
         try:
-            text = (gemini_chat if provider == "gemini" else groq_chat)(model, system, history)
+            text = (gemini_chat if provider == "gemini" else groq_chat)(model, system, history, **opts)
             text = (text or "").replace("’", "'").replace("‘", "'").replace(" ", " ")
             if text.strip():
                 return text.strip(), f"{provider}:{model}"
@@ -280,6 +298,83 @@ def ask_llm(system, history):
             errors.append(f"{provider}:{model} -> {str(e)[:120]}")
             print("LLM failed:", errors[-1])
     return "Sorry, I'm having trouble connecting right now. Could you say that again?", "error: " + " | ".join(errors)
+
+
+# ---------------------------------------------------------------- memory: agents remember callers across calls
+TZ = timezone(timedelta(minutes=int(os.getenv("TZ_OFFSET_MINUTES", "330"))))  # India (UTC+5:30) by default
+
+
+def now_text():
+    return datetime.now(TZ).strftime("%A, %d %B %Y, %I:%M %p")
+
+
+def memory_for(user_id, persona):
+    """(name, notes) this agent remembers about the caller. The name is shared by all agents; notes are per agent."""
+    u = q("SELECT name FROM users WHERE id=?", (user_id,), one=True) or {}
+    notes = [r["note"] for r in q("SELECT note FROM memories WHERE user_id=? AND persona=? ORDER BY id", (user_id, persona))]
+    return u.get("name"), notes
+
+
+def memory_prompt(name, notes):
+    if not notes:
+        if name:
+            return (f"This is your first call with this person, but our records say their name is {name}. "
+                    "Use their name; don't pretend to remember any earlier conversation with you.")
+        return "This is a new caller you haven't spoken to before. Ask their name naturally early in the call."
+    lines = [f"Their name: {name}" if name else "You don't know their name yet; ask naturally."] + [f"- {n}" for n in notes]
+    return ("You have spoken with this caller before. What you remember (use it naturally like a person would, "
+            "don't recite it all):\n" + "\n".join(lines))
+
+
+MEMORY_RULES = """You maintain the memory a phone agent keeps about one caller, so the next call feels personal.
+Read the current memory and the latest call transcript, then return the UPDATED memory as JSON only:
+{"name": "<caller's first name, or null if never said>", "notes": ["...", "..."]}
+Notes are short facts that will matter on the NEXT call:
+- bookings and appointments with absolute day, date and time (turn "tomorrow" etc. into real dates using today's date)
+- cancellations or changes (update or remove the old note), what was agreed, next steps, open questions
+- personal details they shared that help (problem, preferences, team size, current tools, experience)
+- for interviews: stage reached and a one-line impression of their answers
+Keep still-valid old notes, drop outdated ones. At most 8 notes, each under 20 words. Never invent anything."""
+
+_memory_lock = threading.Lock()
+
+
+def remember(call_id):
+    """Summarise a finished call into the caller's memory (runs in the background)."""
+    with _memory_lock:  # each call is processed once
+        c = q("SELECT * FROM calls WHERE id=?", (call_id,), one=True)
+        if not c or c.get("memory_done"):
+            return
+        q("UPDATE calls SET memory_done=1 WHERE id=?", (call_id,))
+    try:
+        msgs = q("SELECT role, text FROM messages WHERE call_id=? ORDER BY id", (call_id,))
+        if not any(m["role"] == "user" for m in msgs):
+            return
+        p = PERSONAS.get(c["persona"], {})
+        name, notes = memory_for(c["user_id"], c["persona"])
+        transcript = "\n".join(f"{'Caller' if m['role'] == 'user' else p.get('name', 'Agent')}: {m['text']}" for m in msgs)
+        prompt = (f"Today is {now_text()}. Agent: {p.get('name')}, {p.get('role')}.\nKnown name: {name or 'unknown'}\n"
+                  "Current notes:\n" + ("\n".join(f"- {n}" for n in notes) or "(none)") + f"\n\nCall transcript:\n{transcript}")
+        reply, provider = ask_llm(MEMORY_RULES, [{"role": "user", "text": prompt}], max_tokens=500, temperature=0.2)
+        if provider.startswith("error"):
+            return
+        data = json.loads(re.search(r"\{.*\}", reply, re.S).group(0))
+        new_name = str(data.get("name") or "").strip()
+        if new_name and new_name.lower() not in ("null", "none", "unknown") and len(new_name) <= 40:
+            q("UPDATE users SET name=? WHERE id=?", (new_name, c["user_id"]))
+        new_notes = [str(n).strip() for n in (data.get("notes") or []) if str(n).strip()][:8]
+        q("DELETE FROM memories WHERE user_id=? AND persona=?", (c["user_id"], c["persona"]))
+        for n in new_notes:
+            q("INSERT INTO memories (user_id, persona, note, call_id, created_at) VALUES (?,?,?,?,?)",
+              (c["user_id"], c["persona"], n[:200], call_id, time.time()))
+        print(f"memory updated for {c['user_id']}/{c['persona']}: name={new_name or name}, {len(new_notes)} notes")
+    except Exception as e:
+        print("memory update failed:", call_id, e)
+
+
+def finish_call(call_id):
+    q("UPDATE calls SET status='ended', ended_at=? WHERE id=? AND status='active'", (time.time(), call_id))
+    threading.Thread(target=remember, args=(call_id,), daemon=True).start()
 
 
 # ---------------------------------------------------------------- API
@@ -458,7 +553,20 @@ def start_call(b: Start, sub=Depends(current_subject)):
     call_id = "C-" + uuid.uuid4().hex[:10].upper()
     now = time.time()
     q("INSERT INTO calls (id, user_id, persona, status, started_at, ended_at) VALUES (?,?,?,?,?,?)", (call_id, sub, b.persona, "active", now, None))
-    greeting = PERSONAS[b.persona]["greeting"]
+    p = PERSONAS[b.persona]
+    greeting = p["greeting"]
+    name, notes = memory_for(sub, b.persona)
+    if name and not notes:  # known name but first call with this agent: fixed greeting, nothing to make up
+        greeting = p["greeting_named"].format(name=name)
+    elif notes:  # returning caller: pick up like someone who remembers them
+        system = (f"{p['prompt']}\n\n{VOICE_RULES}\n\nToday is {now_text()}.\n{memory_prompt(name, notes)}\n\n"
+                  "You're picking up the phone to this returning caller. Say your opening line: greet them warmly by name "
+                  "if you know it, and only if your notes mention something clearly relevant now (an upcoming appointment, an "
+                  "unfinished interview, a demo), bring it up briefly. Never mention anything that isn't in your notes. "
+                  "One or two short sentences, end with a question.")
+        text, provider = ask_llm(system, [{"role": "user", "text": "(The phone rings and you pick up.)"}], max_tokens=120)
+        if not provider.startswith("error"):
+            greeting = shorten(END_TOKEN.sub("", text), 35) or greeting
     q("INSERT INTO messages (call_id, role, text, created_at) VALUES (?,?,?,?)", (call_id, "ai", greeting, now))
     return {"call_id": call_id, "greeting": greeting}
 
@@ -475,7 +583,9 @@ def say(call_id: str, b: Say, sub=Depends(current_subject)):
 
     p = PERSONAS[call["persona"]]
     docs = retrieve(call["persona"], text)
-    system = f"{p['prompt']}\n\n{VOICE_RULES}\n\nKnowledge:\n" + "\n".join(f"- {d}" for d in docs)
+    name, notes = memory_for(sub, call["persona"])
+    system = (f"{p['prompt']}\n\n{VOICE_RULES}\n\nToday is {now_text()}.\n{memory_prompt(name, notes)}\n\n"
+              "Knowledge:\n" + "\n".join(f"- {d}" for d in docs))
     if p.get("stages"):  # structured conversation (interviewer): tell the model where we are
         answers = q("SELECT COUNT(*) n FROM messages WHERE call_id=? AND role='user'", (call_id,), one=True)["n"]
         stage = p["stages"][min(answers, len(p["stages"])) - 1]
@@ -491,14 +601,14 @@ def say(call_id: str, b: Say, sub=Depends(current_subject)):
     q("INSERT INTO messages (call_id, role, text, context, provider, latency_ms, created_at) VALUES (?,?,?,?,?,?,?)",
       (call_id, "ai", reply, "\n".join(docs), provider, ms, time.time()))
     if end:  # agent said goodbye: close the call; the browser hangs up after the last words are spoken
-        q("UPDATE calls SET status='ended', ended_at=? WHERE id=?", (time.time(), call_id))
+        finish_call(call_id)
     return {"reply": reply, "provider": provider, "latency_ms": ms, "end": end}
 
 
 @app.post("/api/calls/{call_id}/end")
 def end_call(call_id: str, sub=Depends(current_subject)):
     own_call(call_id, sub)
-    q("UPDATE calls SET status='ended', ended_at=? WHERE id=? AND status='active'", (time.time(), call_id))
+    finish_call(call_id)
     return {"ok": True}
 
 
@@ -518,6 +628,8 @@ def close_stale_calls():
     q("""UPDATE calls SET status='ended', ended_at=(SELECT MAX(created_at) FROM messages m WHERE m.call_id=calls.id)
          WHERE status='active' AND COALESCE((SELECT MAX(created_at) FROM messages m WHERE m.call_id=calls.id), started_at) < ?""",
       (time.time() - 300,))
+    for c in q("SELECT id FROM calls WHERE status='ended' AND COALESCE(memory_done, 0)=0"):
+        threading.Thread(target=remember, args=(c["id"],), daemon=True).start()
 
 
 CALL_COLUMNS = """c.*, u.email, (SELECT COUNT(*) FROM messages m WHERE m.call_id=c.id) AS msg_count,
@@ -529,6 +641,32 @@ def with_labels(rows):
     for c in rows:
         c["persona_name"] = persona_label(c["persona"])
     return rows
+
+
+class Name(BaseModel):
+    name: str
+
+
+@app.get("/api/me")
+def me(sub=Depends(current_subject)):
+    u = q("SELECT name FROM users WHERE id=?", (sub,), one=True) or {}
+    mem = q("SELECT persona, note FROM memories WHERE user_id=? ORDER BY persona, id", (sub,))
+    for m in mem:
+        m["persona_name"] = persona_label(m["persona"])
+    return {"name": u.get("name"), "memories": mem}
+
+
+@app.post("/api/me/name")
+def set_name(b: Name, sub=Depends(current_subject)):
+    q("UPDATE users SET name=? WHERE id=?", (b.name.strip()[:40] or None, sub))
+    return {"ok": True}
+
+
+@app.post("/api/me/forget")
+def forget_me(sub=Depends(current_subject)):
+    q("DELETE FROM memories WHERE user_id=?", (sub,))
+    q("UPDATE users SET name=NULL WHERE id=?", (sub,))
+    return {"ok": True}
 
 
 @app.get("/api/me/calls")
@@ -547,10 +685,11 @@ def my_call(call_id: str, sub=Depends(current_subject)):
 @app.get("/api/admin/overview")
 def admin_overview(_=Depends(require_admin)):
     close_stale_calls()
-    calls = with_labels(q(f"SELECT {CALL_COLUMNS} FROM calls c LEFT JOIN users u ON u.id=c.user_id "
+    calls = with_labels(q(f"SELECT {CALL_COLUMNS}, u.name FROM calls c LEFT JOIN users u ON u.id=c.user_id "
                           "ORDER BY c.started_at DESC LIMIT 200"))
-    users = q("""SELECT u.id, u.email, u.created_at, COUNT(c.id) AS call_count FROM users u
-                 LEFT JOIN calls c ON c.user_id=u.id GROUP BY u.id ORDER BY u.created_at DESC""")
+    users = q("""SELECT u.id, u.email, u.name, u.created_at, COUNT(c.id) AS call_count,
+                        (SELECT COUNT(*) FROM memories mm WHERE mm.user_id=u.id) AS memory_count
+                 FROM users u LEFT JOIN calls c ON c.user_id=u.id GROUP BY u.id ORDER BY u.created_at DESC""")
     # analytics
     day = 86400
     today = int(time.time() // day)
@@ -581,8 +720,9 @@ def admin_overview(_=Depends(require_admin)):
 
 @app.get("/api/admin/calls/{call_id}")
 def admin_call(call_id: str, _=Depends(require_admin)):
-    call = q("SELECT c.*, u.email FROM calls c LEFT JOIN users u ON u.id=c.user_id WHERE c.id=?", (call_id,), one=True)
+    call = q("SELECT c.*, u.email, u.name FROM calls c LEFT JOIN users u ON u.id=c.user_id WHERE c.id=?", (call_id,), one=True)
     if not call:
         raise HTTPException(404, "Call not found")
     call["persona_name"] = persona_label(call["persona"])
-    return {"call": call, "messages": q("SELECT * FROM messages WHERE call_id=? ORDER BY id", (call_id,))}
+    return {"call": call, "messages": q("SELECT * FROM messages WHERE call_id=? ORDER BY id", (call_id,)),
+            "memory": memory_for(call["user_id"], call["persona"])[1]}

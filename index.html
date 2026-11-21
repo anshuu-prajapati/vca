@@ -261,6 +261,17 @@
         <div class="card" style="max-width:560px">
           <div style="display:flex;gap:14px;align-items:center"><span id="setInitial" class="initial" style="width:52px;height:52px;font-size:20px"></span>
             <div><div id="setEmail" style="font-weight:800;font-size:17px"></div><div id="setId" class="muted small"></div></div></div>
+          <div id="memoryBox" class="hidden">
+            <div class="section-title" style="margin-top:22px">Your name</div>
+            <p class="muted small" style="margin-bottom:8px">Agents greet you with this. They also pick it up on calls.</p>
+            <form id="nameForm" style="display:flex;gap:8px">
+              <div class="field" style="margin:0;flex:1"><input id="nameInput" placeholder="What should agents call you?" style="padding-right:14px"></div>
+              <button class="btn primary" type="submit">Save</button>
+            </form>
+            <div class="section-title" style="margin-top:22px">What agents remember about you</div>
+            <div id="memoryList"></div>
+            <button class="btn ghost small" style="margin-top:10px;padding:0" onclick="forgetMe()">Forget me: clear name and all memories</button>
+          </div>
           <div class="section-title" style="margin-top:22px">How it works</div>
           <p class="muted small">Your voice is transcribed in the browser, answered by a fast LLM (Groq, with Gemini as backup) using each agent's own
             knowledge base, and spoken back with a natural neural voice. Calls end on their own when the conversation is done.</p>
@@ -334,7 +345,7 @@
 
       <!-- admin: users -->
       <section id="p-users" class="page hidden">
-        <div class="card table-card"><table><thead><tr><th>User</th><th>User ID</th><th>Joined</th><th>Calls</th></tr></thead><tbody id="userRows"></tbody></table></div>
+        <div class="card table-card"><table><thead><tr><th>User</th><th>Name</th><th>User ID</th><th>Joined</th><th>Calls</th><th>Memory</th></tr></thead><tbody id="userRows"></tbody></table></div>
       </section>
     </div>
   </div>
@@ -432,7 +443,8 @@ function go(p) {
   document.querySelectorAll("#nav a").forEach(a => a.classList.toggle("on", a.dataset.p === p));
   $("title").textContent = p === "dashboard" ? `Hi, ${auth.email.split("@")[0]}` : TITLES[p];
   $("topRight").innerHTML = p === "dashboard" ? `<span class="pill lav">Voice Agents Hub</span>` : "";
-  ({ dashboard: loadDashboard, agents: loadAgents, history: loadHistory, analytics: loadAdmin, calls: loadAdmin, users: loadAdmin }[p] || (() => {}))();
+  ({ dashboard: loadDashboard, agents: loadAgents, history: loadHistory, settings: loadSettings,
+     analytics: loadAdmin, calls: loadAdmin, users: loadAdmin }[p] || (() => {}))();
 }
 
 function logout() {
@@ -468,8 +480,33 @@ const agentCard = p => `
     <button class="btn primary block" onclick="startCall('${p.id}')">${icon("calls")}Start call</button>
   </div>`;
 
+// ---------- memory: what the agents remember about you
+async function loadSettings() {
+  if (auth.role === "admin") return;
+  $("memoryBox").classList.remove("hidden");
+  const [m] = await Promise.all([api("/api/me"), getPersonas()]);
+  $("nameInput").value = m.name || "";
+  const by = {};
+  m.memories.forEach(x => (by[x.persona] = by[x.persona] || []).push(x.note));
+  $("memoryList").innerHTML = Object.keys(by).length ? Object.entries(by).map(([pid, notes]) => `
+    <div style="display:flex;gap:12px;padding:12px 0;border-top:1px solid var(--line)">${avatar(pid, 36)}
+      <div><div style="font-weight:800">${esc(personas[pid]?.name || pid)} <span class="muted small" style="font-weight:600">${esc(personas[pid]?.role || "")}</span></div>
+      <ul class="muted small" style="margin:4px 0 0 16px">${notes.map(n => `<li>${esc(n)}</li>`).join("")}</ul></div></div>`).join("")
+    : `<p class="muted small">Nothing yet. After a call, agents keep short notes (appointments, what you discussed) so the next call picks up where you left off.</p>`;
+}
+$("nameForm").onsubmit = async e => {
+  e.preventDefault();
+  await api("/api/me/name", { name: $("nameInput").value.trim() });
+  $("nameInput").blur(); loadSettings();
+};
+async function forgetMe() {
+  if (!confirm("Clear your name and everything the agents remember about you?")) return;
+  await api("/api/me/forget", {}); loadSettings();
+}
+
 async function loadDashboard() {
-  const [list, calls] = await Promise.all([getPersonas(), api("/api/me/calls")]);
+  const [list, calls, me] = await Promise.all([getPersonas(), api("/api/me/calls"), api("/api/me")]);
+  if (me.name) $("title").textContent = `Hi, ${me.name}`;
   $("dAgentsGrid").innerHTML = list.map(agentCard).join("");
   $("dAgents").textContent = list.length; $("dCalls").textContent = calls.length;
   $("dMinutes").innerHTML = `${Math.round(calls.reduce((s, c) => s + (c.duration || 0), 0) / 60)}<small> min</small>`;
@@ -689,12 +726,13 @@ async function loadAdmin() {
   // calls + users
   $("callRows").innerHTML = d.calls.map(c => `<tr class="row ${c.id === openCall ? "sel" : ""}" data-id="${esc(c.id)}" onclick="openDetail('${esc(c.id)}')">
     <td>${c.status === "active" ? `<span class="pill lav"><span class="d"></span>Live</span>` : `<span class="pill grey">Ended</span>`}</td>
-    <td>${esc(c.email || c.user_id)}</td><td><div class="agentcell">${avatar(c.persona, 26)}${esc(c.persona_name)}</div></td>
+    <td>${c.name ? `<b>${esc(c.name)}</b> <span class="muted small">${esc(c.email || "")}</span>` : esc(c.email || c.user_id)}</td><td><div class="agentcell">${avatar(c.persona, 26)}${esc(c.persona_name)}</div></td>
     <td class="muted hide-open">${fmt(c.started_at)}</td><td class="muted hide-open">${c.msg_count}</td><td>${stars(c.rating)}</td></tr>`).join("")
     || `<tr><td colspan="6" class="muted">No calls yet.</td></tr>`;
   $("userRows").innerHTML = d.users.map(u => `<tr><td><div class="agentcell"><span class="initial">${esc(u.email[0].toUpperCase())}</span>${esc(u.email)}</div></td>
-    <td class="muted">${esc(u.id)}</td><td class="muted">${fmt(u.created_at)}</td><td>${u.call_count}</td></tr>`).join("")
-    || `<tr><td colspan="4" class="muted">No users yet.</td></tr>`;
+    <td>${u.name ? esc(u.name) : '<span class="faint">–</span>'}</td><td class="muted">${esc(u.id)}</td><td class="muted">${fmt(u.created_at)}</td>
+    <td>${u.call_count}</td><td>${u.memory_count ? `<span class="pill lav">${u.memory_count} notes</span>` : '<span class="faint">–</span>'}</td></tr>`).join("")
+    || `<tr><td colspan="6" class="muted">No users yet.</td></tr>`;
   if (openCall && d.calls.find(c => c.id === openCall)?.status === "active") openDetail(openCall); // live-follow active calls
 }
 
@@ -718,14 +756,17 @@ function drawChart(vol) {
 async function openDetail(id) {
   openCall = id;
   document.querySelectorAll("#callRows tr").forEach(r => r.classList.toggle("sel", r.dataset.id === id));
-  const { call: c, messages } = await api(`/api/admin/calls/${id}`);
+  const { call: c, messages, memory } = await api(`/api/admin/calls/${id}`);
   const secs = ((c.ended_at || Date.now() / 1000) - c.started_at) | 0;
   $("split").classList.add("open"); $("detail").classList.remove("hidden");
   $("detail").innerHTML = `
     <div class="panel-head"><div class="agentcell">${avatar(c.persona, 40)}<div>${esc(c.persona_name)}
-      <div class="muted small" style="font-weight:600">${esc(c.email || "")} · ${esc(c.user_id)}</div>
+      <div class="muted small" style="font-weight:600">${c.name ? esc(c.name) + " · " : ""}${esc(c.email || "")} · ${esc(c.user_id)}</div>
       <div class="faint small" style="font-weight:600">${fmt(c.started_at)} · ${dur(secs)} · ${c.status === "active" ? "Live" : "Ended"}${c.rating ? " · " + c.rating + "★" : ""}</div></div></div>
       <a href="#" class="muted small" onclick="closeDetail();return false">Close</a></div>
+    ${memory?.length ? `<div style="background:var(--lav-soft);border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px">
+      <b style="color:var(--lav)">${esc(c.persona_name.split(" · ")[0])} remembers</b>
+      <ul style="margin:4px 0 0 16px">${memory.map(n => `<li>${esc(n)}</li>`).join("")}</ul></div>` : ""}
     <div class="bubbles">${messages.map(m => `<div class="bubble ${m.role === "user" ? "me" : ""}">
       <span class="who">${m.role === "user" ? "User" : "Agent"}</span>${esc(m.text)}
       ${m.provider ? `<span class="meta">${esc(m.provider)} · ${m.latency_ms} ms</span>` : ""}
