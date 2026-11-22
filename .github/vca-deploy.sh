@@ -8,6 +8,7 @@ PREV=/opt/vca-prev
 FILES="app.py index.html requirements.txt"
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
+cd "$APP"  # never run tools from ~ubuntu (uv would try to read its config files as the vca user)
 
 echo "==> receiving release"
 head -c 20000000 | tar -xzf - -C "$STAGE" --no-same-owner $FILES
@@ -30,7 +31,7 @@ install_files() {  # $1 = source dir
   for f in $FILES; do sudo install -o vca -g vca -m 644 "$1/$f" "$APP/$f"; done
   if [ "$REQS_CHANGED" = 1 ]; then
     echo "==> installing python packages"
-    sudo -u vca env HOME=/var/lib/vca /usr/local/bin/uv pip install -q --python "$APP/.venv/bin/python" -r "$APP/requirements.txt"
+    sudo -u vca env HOME=/var/lib/vca /usr/local/bin/uv pip install -q --no-config --python "$APP/.venv/bin/python" -r "$APP/requirements.txt"
   fi
 }
 healthy() {
@@ -39,7 +40,11 @@ healthy() {
 }
 
 echo "==> installing new version"
-install_files "$STAGE"
+if ! install_files "$STAGE"; then
+  echo "!! install failed, restoring previous version"
+  REQS_CHANGED=0; install_files "$PREV"
+  exit 1
+fi
 sudo systemctl restart vca
 if healthy; then
   echo "==> deployed OK"
