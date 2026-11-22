@@ -164,7 +164,48 @@
   .bar { height:7px; border-radius:6px; background:#EEF3F2; margin-top:6px; overflow:hidden; }
   .bar i { display:block; height:100%; background:var(--mint); border-radius:6px; }
 
+  /* EasyRecruitz recruiter page */
+  .stats6 { display:grid; grid-template-columns:repeat(6, 1fr); gap:14px; }
+  .stats6 .stat .val { font-size:24px; }
+  .stat .sub { font-size:12px; color:var(--faint); font-weight:700; margin-top:2px; }
+  .rc-grid { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,1fr); gap:16px; margin-top:16px; }
+  .kv { display:grid; grid-template-columns:120px 1fr; gap:6px 12px; font-size:14px; margin-top:10px; }
+  .kv span:nth-child(odd) { color:var(--muted); font-weight:700; font-size:13px; }
+  .rowline { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 0; border-top:1px solid var(--line); font-size:14px; }
+  .rowline:first-of-type { border-top:0; }
+  .switch { position:relative; width:46px; height:26px; border-radius:99px; background:#DDE5E3; border:0; cursor:pointer; transition:background .2s; flex-shrink:0; }
+  .switch::after { content:""; position:absolute; top:3px; left:3px; width:20px; height:20px; border-radius:50%; background:#fff; transition:left .2s; box-shadow:0 1px 3px rgba(0,0,0,.15); }
+  .switch.on { background:var(--mint); } .switch.on::after { left:23px; }
+  select, .mini { height:36px; border:1.5px solid var(--line); border-radius:10px; background:#FAFCFB; padding:0 10px; outline:none; font:inherit; }
+  .mini { width:100%; } .mini:focus, select:focus { border-color:var(--mint); }
+  .toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .btn.sm { height:34px; padding:0 12px; font-size:13px; border-radius:10px; }
+  .pill.red { background:var(--red-soft); color:var(--red); }
+  .pill.ring { background:var(--lav-soft); color:var(--lav); animation:blink 1s ease-in-out infinite; }
+  @keyframes blink { 50% { opacity:.45; } }
+  .fields { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:12px 0; }
+  .fields div { background:#F6F9F8; border-radius:10px; padding:8px 10px; font-size:13px; }
+  .fields b { display:block; font-size:11px; color:var(--faint); text-transform:uppercase; letter-spacing:.4px; }
+  .summary { background:var(--mint-soft); border-radius:12px; padding:10px 14px; font-size:13px; margin-bottom:12px; }
+  .addform { display:grid; grid-template-columns:1.2fr 1fr 1.2fr auto; gap:8px; margin-bottom:12px; }
+
+  /* candidate call link */
+  #cand { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;
+          background:radial-gradient(900px 500px at 50% 0%, #E6F6F0 0%, transparent 60%), var(--bg); }
+  .cand-card { width:100%; max-width:380px; text-align:center; padding:32px 26px; }
+  .cand-av { position:relative; width:128px; height:128px; margin:44px auto 26px; }
+  .cand-av .av { width:128px; height:128px; position:relative; z-index:1; }
+  .cand-av .pulse { position:absolute; inset:0; border-radius:50%; background:var(--mint); opacity:0; }
+  .ringing .cand-av .pulse { animation:ripple 1.6s ease-out infinite; } .ringing .cand-av .pulse.two { animation-delay:.8s; }
+  @keyframes ripple { 0% { transform:scale(1); opacity:.45; } 100% { transform:scale(1.7); opacity:0; } }
+  .cand-btns { display:flex; justify-content:center; gap:40px; margin-top:26px; }
+  .cand-btns .round button { width:64px; height:64px; }
+  .round.accept button { background:var(--mint); color:#fff; }
+  #app.cand-mode { grid-template-columns:1fr; } #app.cand-mode aside, #app.cand-mode .topbar { display:none; }
+  #app.cand-mode .content { margin:0 auto; padding-top:24px; }
+
   @media (max-width:900px) {
+    .stats6 { grid-template-columns:repeat(2, 1fr); } .rc-grid { grid-template-columns:1fr; } .addform { grid-template-columns:1fr; }
     #app { grid-template-columns:1fr; }
     aside { position:static; height:auto; flex-direction:row; align-items:center; padding:10px 12px; gap:6px; overflow-x:auto;
             border-right:0; border-bottom:1px solid var(--line); }
@@ -179,6 +220,19 @@
 </style>
 </head>
 <body>
+
+<!-- ============ candidate call link ============ -->
+<section id="cand" class="hidden">
+  <div class="card cand-card" id="candCard">
+    <div class="brandline" style="margin:0"><span class="logo-mark" data-size="18"></span>EasyRecruitz 365</div>
+    <div class="cand-av"><span class="pulse"></span><span class="pulse two"></span><span id="candAvatar"></span></div>
+    <div style="font-size:22px;font-weight:800">Kavya</div>
+    <div class="muted small" id="candSub">Recruiter · EasyRecruitz 365</div>
+    <p id="candMsg" class="muted" style="margin-top:14px"></p>
+    <div id="candActions"></div>
+    <p class="faint small" style="margin-top:22px">Speak normally after you answer. Chrome or Edge works best.</p>
+  </div>
+</section>
 
 <!-- ============ login ============ -->
 <section id="login" class="hidden">
@@ -295,7 +349,7 @@
             <div id="rateBox" class="hidden">
               <div style="font-weight:800">How was your call with <span id="rateName"></span>?</div>
               <div class="starbtns" id="starBtns"></div>
-              <a href="#" class="small muted" onclick="go('dashboard');return false">Skip</a>
+              <a href="#" class="small muted" onclick="afterCall();return false">Skip</a>
             </div>
           </div>
           <div class="card call-right">
@@ -343,6 +397,49 @@
         </div>
       </section>
 
+      <!-- admin: EasyRecruitz screening -->
+      <section id="p-recruit" class="page hidden">
+        <div class="stats6">
+          <div class="card stat"><div class="label">Candidates</div><div class="val" id="rTotal">0</div><div class="sub">uploaded</div></div>
+          <div class="card stat"><div class="label">Completed</div><div class="val" id="rDone">0</div><div class="sub">screened</div></div>
+          <div class="card stat"><div class="label">Pending</div><div class="val" id="rPending">0</div><div class="sub" id="rRetries">0 retries scheduled</div></div>
+          <div class="card stat"><div class="label">No answer / failed</div><div class="val" id="rFailed">0</div><div class="sub">incl. call-backs</div></div>
+          <div class="card stat"><div class="label">Interested</div><div class="val" id="rInterested">0</div><div class="sub">said yes</div></div>
+          <div class="card stat"><div class="label">Calling now</div><div class="val" id="rCalling" style="font-size:16px;margin-top:6px">–</div><div class="sub" id="rCallingSub">idle</div></div>
+        </div>
+        <div class="rc-grid">
+          <div class="card">
+            <div class="section-title" style="margin:0">Opportunity <button class="btn soft sm" onclick="toggleJob()">Edit</button></div>
+            <div id="jobView" class="kv"></div>
+            <form id="jobForm" class="hidden" style="margin-top:10px"></form>
+          </div>
+          <div class="card">
+            <div class="section-title" style="margin:0">Automation</div>
+            <div class="rowline"><div><b>Auto-call queue</b><div class="muted small">Kavya calls pending candidates one by one, and retries due ones</div></div><button id="autoDial" class="switch" onclick="toggleAuto()"></button></div>
+            <div class="rowline"><div><b>Retry unanswered calls</b><div class="muted small">Up to <span id="maxAtt">3</span> attempts per candidate</div></div>
+              <select id="retryDays" onchange="saveConfig({retry_days:+this.value})"><option value="2">every 2 days</option><option value="3">every 3 days</option><option value="4">every 4 days</option></select></div>
+            <div class="rowline" style="display:block"><b>Google Sheet sync</b> <span id="sheetState" class="pill grey" style="margin-left:6px">off</span>
+              <div class="muted small" style="margin:2px 0 8px">Paste your Apps Script web-app URL (setup in README). Every finished call updates the sheet.</div>
+              <form id="sheetForm" style="display:flex;gap:8px"><input id="sheetUrl" class="mini" placeholder="https://script.google.com/macros/s/…/exec"><button class="btn soft sm">Save</button></form>
+            </div>
+            <div class="toolbar" style="margin-top:12px"><button class="btn primary sm" onclick="exportExcel()">Download Excel</button><button class="btn soft sm" onclick="syncSheet()">Sync all to sheet</button></div>
+          </div>
+        </div>
+        <div class="section-title">Candidates
+          <div class="toolbar">
+            <button class="btn primary sm" onclick="$('fileIn').click()">Upload CSV / Excel</button>
+            <button class="btn soft sm" onclick="$('addForm').classList.toggle('hidden')">Add one</button>
+            <a class="small muted" href="/api/recruit-sample.csv">Sample file</a>
+            <input id="fileIn" type="file" accept=".csv,.xlsx" class="hidden">
+          </div>
+        </div>
+        <form id="addForm" class="addform hidden"><input id="aName" class="mini" placeholder="Full name"><input id="aPhone" class="mini" placeholder="Phone"><input id="aEmail" class="mini" placeholder="Email"><button class="btn primary sm">Add</button></form>
+        <div id="recruitSplit" class="split">
+          <div class="card table-card"><table><thead><tr><th>Candidate</th><th>Status</th><th class="hide-open">Tries</th><th>Interested</th><th class="hide-open">Expected CTC</th><th class="hide-open">Notice</th><th class="hide-open">Next retry</th><th></th></tr></thead><tbody id="candRows"></tbody></table></div>
+          <div id="candDetail" class="card panel hidden"></div>
+        </div>
+      </section>
+
       <!-- admin: users -->
       <section id="p-users" class="page hidden">
         <div class="card table-card"><table><thead><tr><th>User</th><th>Name</th><th>User ID</th><th>Joined</th><th>Calls</th><th>Memory</th></tr></thead><tbody id="userRows"></tbody></table></div>
@@ -369,6 +466,7 @@ const ICON = {
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
   analytics: '<path d="M3 3v18h18"/><path d="m7 15 4-5 3 3 5-6"/>',
   calls: '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/>',
+  recruit: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M3 13h18"/>',
   users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>',
 };
 const icon = n => `<svg class="i" viewBox="0 0 24 24">${ICON[n]}</svg>`;
@@ -383,14 +481,16 @@ const LOOK = {
   receptionist: { bg:"#FFE2D2", skin:"#F3C9A6", hair:"#3B2A25", shirt:"#7FD0B8", style:"long" },
   interviewer:  { bg:"#FFE6A8", skin:"#E2AE86", hair:"#2C221E", shirt:"#8FA9F2", style:"short" },
   sales:        { bg:"#DCE7FF", skin:"#EEC19C", hair:"#4B2F27", shirt:"#F3A0A0", style:"bun" },
+  easyrecruitz: { bg:"#D8F2E8", skin:"#F0C3A0", hair:"#2D211D", shirt:"#8E7CF0", style:"bob" },
 };
 let avN = 0;
 function avatar(id, size) {
   const L = LOOK[id] || LOOK.receptionist, k = "av" + (avN++);
-  const back = L.style === "long" ? `<path d="M27 50 Q25 19 50 18 Q75 19 73 50 L76 84 L24 84 Z" fill="${L.hair}"/>` : "";
+  const back = L.style === "bob" ? `<path d="M27 50 Q25 19 50 18 Q75 19 73 50 L74 66 Q50 72 26 66 Z" fill="${L.hair}"/>` : L.style === "long" ? `<path d="M27 50 Q25 19 50 18 Q75 19 73 50 L76 84 L24 84 Z" fill="${L.hair}"/>` : "";
   const top = {
     short: `<path d="M30 47 Q28 23 50 22 Q72 23 70 47 Q67 33 50 32 Q35 33 30 47Z" fill="${L.hair}"/>`,
     long:  `<path d="M31 49 Q30 24 50 23 Q70 24 69 49 Q64 33 53 31 Q40 36 31 49Z" fill="${L.hair}"/>`,
+    bob:   `<path d="M31 50 Q29 24 50 23 Q71 24 69 50 Q66 34 50 32 Q36 33 31 50Z" fill="${L.hair}"/>`,
     bun:   `<circle cx="50" cy="19" r="8.5" fill="${L.hair}"/><path d="M31 47 Q30 24 50 23 Q70 24 69 47 Q63 32 50 31 Q37 32 31 47Z" fill="${L.hair}"/>`,
   }[L.style];
   return `<span class="av" style="width:${size}px;height:${size}px"><svg viewBox="0 0 100 100"><defs><clipPath id="${k}"><circle cx="50" cy="50" r="50"/></clipPath></defs>
@@ -420,10 +520,11 @@ async function api(path, body) {
 // ---------- shell + navigation
 const NAV = {
   user:  [["dashboard", "Dashboard"], ["agents", "Agents"], ["history", "Call history"], ["settings", "Settings"]],
-  admin: [["analytics", "Analytics"], ["calls", "Calls"], ["users", "Users"], ["settings", "Settings"]],
+  admin: [["analytics", "Analytics"], ["recruit", "EasyRecruitz"], ["calls", "Calls"], ["users", "Users"], ["settings", "Settings"]],
 };
 const TITLES = { dashboard: "Voice Agents Hub", agents: "Agents", history: "Call history", settings: "Settings",
-                 analytics: "Admin analytics", calls: "All calls", users: "Users", call: "On a call" };
+                 analytics: "Admin analytics", calls: "All calls", users: "Users", call: "On a call",
+                 recruit: "EasyRecruitz · AI candidate screening" };
 
 function boot() {
   if (!auth) { $("app").classList.add("hidden"); $("login").classList.remove("hidden"); return; }
@@ -443,11 +544,12 @@ function go(p) {
   document.querySelectorAll("#nav a").forEach(a => a.classList.toggle("on", a.dataset.p === p));
   $("title").textContent = p === "dashboard" ? `Hi, ${auth.email.split("@")[0]}` : TITLES[p];
   $("topRight").innerHTML = p === "dashboard" ? `<span class="pill lav">Voice Agents Hub</span>` : "";
-  ({ dashboard: loadDashboard, agents: loadAgents, history: loadHistory, settings: loadSettings,
+  ({ dashboard: loadDashboard, agents: loadAgents, history: loadHistory, settings: loadSettings, recruit: loadRecruit,
      analytics: loadAdmin, calls: loadAdmin, users: loadAdmin }[p] || (() => {}))();
 }
 
 function logout() {
+  if (candToken) return;  // call links never touch the recruiter's login
   stopCall(); auth = null; localStorage.removeItem("vca");
   $("email").value = ""; $("password").value = ""; boot();
 }
@@ -575,11 +677,11 @@ function addMsg(me, text) {
   $("transcript").scrollTop = 1e9;
 }
 
-async function startCall(id) {
-  await getPersonas();
+async function startCall(id, preset) {
+  if (!preset) await getPersonas();
   const p = personas[id];
   try { await navigator.mediaDevices?.getUserMedia({ audio: true }); } catch { /* typing still works */ }
-  const r = await api("/api/calls", { persona: id });
+  const r = preset || await api("/api/calls", { persona: id });
   call = { id: r.call_id, persona: p, start: Date.now(), voice: pickVoice(p.voice) };
   go("call");
   $("callAvatar").innerHTML = avatar(id, 138); $("callName").textContent = p.name; $("callRole").textContent = p.role;
@@ -683,7 +785,8 @@ function hangUp() {
   $("starBtns").innerHTML = [1, 2, 3, 4, 5].map(n => `<button onclick="rate(${n})" onmouseenter="hoverStars(${n})" onmouseleave="hoverStars(0)">★</button>`).join("");
 }
 function hoverStars(n) { [...$("starBtns").children].forEach((b, i) => b.classList.toggle("on", i < n)); }
-async function rate(n) { hoverStars(n); await api(`/api/calls/${ratedCall}/rate`, { rating: n }).catch(() => {}); setTimeout(() => go("dashboard"), 500); }
+async function rate(n) { hoverStars(n); await api(`/api/calls/${ratedCall}/rate`, { rating: n }).catch(() => {}); setTimeout(afterCall, 500); }
+function afterCall() { candToken ? candidateDone() : go("dashboard"); }
 
 $("endBtn").onclick = hangUp;
 $("muteBtn").onclick = () => {
@@ -778,7 +881,169 @@ function closeDetail() {
 }
 setInterval(() => loadAdmin().catch(() => {}), 4000); // live monitoring
 
-boot();
+// ---------- EasyRecruitz: recruiter dashboard
+const RSTATUS = { pending: ["Pending", "grey"], ringing: ["Ringing", "ring"], in_call: ["On call", "lav"], completed: ["Completed", ""],
+                  unanswered: ["No answer", "red"], failed: ["Failed", "red"], callback: ["Call back", "lav"] };
+const rpill = s => { const [t, c] = RSTATUS[s] || [s, "grey"]; return `<span class="pill ${c}">${s === "ringing" || s === "in_call" ? '<span class="d"></span>' : ""}${t}</span>`; };
+const shortDate = t => t ? new Date(t * 1000).toLocaleDateString([], { month: "short", day: "numeric" }) : "–";
+const JOB_FIELDS = [["title", "Role"], ["company", "Company"], ["location", "Location"], ["experience", "Experience"], ["budget", "Budget"], ["about", "About"]];
+let rdata = null, openCand = null;
+
+async function loadRecruit() {
+  if (auth?.role !== "admin" || page !== "recruit") return;
+  const d = rdata = await api("/api/recruit"), st = d.stats, cfg = d.config;
+  $("rTotal").textContent = st.total; $("rDone").textContent = st.completed; $("rPending").textContent = st.pending;
+  $("rRetries").textContent = `${st.retries} retr${st.retries === 1 ? "y" : "ies"} scheduled`;
+  $("rFailed").textContent = st.unanswered; $("rInterested").textContent = st.interested;
+  $("rCalling").textContent = st.calling.length ? st.calling[0].name : "–";
+  $("rCallingSub").innerHTML = st.calling.length ? rpill(st.calling[0].status) : (cfg.auto_dial ? "queue running" : "idle");
+  $("autoDial").classList.toggle("on", !!cfg.auto_dial); $("retryDays").value = cfg.retry_days; $("maxAtt").textContent = d.max_attempts;
+  if (document.activeElement !== $("sheetUrl")) $("sheetUrl").value = cfg.sheet_webhook || "";
+  $("sheetState").className = "pill " + (cfg.sheet_webhook ? "" : "grey"); $("sheetState").textContent = cfg.sheet_webhook ? "connected" : "off";
+  $("jobView").innerHTML = JOB_FIELDS.map(([k, l]) => `<span>${l}</span><span>${esc(cfg.job[k])}</span>`).join("");
+  const rows = d.candidates.map(c => `<tr class="row ${c.id === openCand ? "sel" : ""}" data-id="${esc(c.id)}" onclick="openCandidate('${esc(c.id)}')">
+    <td><div style="font-weight:700">${esc(c.name || "Unknown")}</div><div class="faint small">${esc(c.phone || c.email || c.source || "")}</div></td>
+    <td>${rpill(c.status)}</td><td class="muted hide-open">${c.attempts || 0}/${d.max_attempts}</td>
+    <td>${c.interested ? `<span class="pill ${/^yes/i.test(c.interested) ? "" : /^no/i.test(c.interested) ? "red" : "grey"}">${esc(c.interested)}</span>` : '<span class="faint">–</span>'}</td>
+    <td class="muted hide-open">${esc(c.expected_ctc || "–")}</td><td class="muted hide-open">${esc(c.notice_period || "–")}</td>
+    <td class="muted hide-open">${c.next_retry_at ? shortDate(c.next_retry_at) : "–"}</td>
+    <td style="text-align:right"><button class="btn soft sm" onclick="event.stopPropagation();callCandidate('${esc(c.id)}')" ${["ringing", "in_call"].includes(c.status) ? "disabled" : ""}>${icon("calls")}Call</button></td></tr>`).join("")
+    || `<tr><td colspan="8" class="muted" style="padding:18px">No candidates yet. Upload a CSV or Excel file with Name, Phone and Email columns.</td></tr>`;
+  if (rows !== $("candRows").dataset.html) { $("candRows").innerHTML = rows; $("candRows").dataset.html = rows; }  // redraw only on change
+  if (openCand) openCandidate(openCand, true);
+}
+
+async function openCandidate(id, refresh) {
+  openCand = id;
+  document.querySelectorAll("#candRows tr").forEach(r => r.classList.toggle("sel", r.dataset.id === id));
+  const { candidate: c, messages, fields } = await api(`/api/recruit/${id}`);
+  const key = JSON.stringify([c, messages.length]);
+  if (refresh && key === $("candDetail").dataset.key) return;  // nothing changed
+  $("candDetail").dataset.key = key;
+  const open = $("candDetail").querySelector("details")?.open;
+  $("recruitSplit").classList.add("open"); $("candDetail").classList.remove("hidden");
+  $("candDetail").innerHTML = `
+    <div class="panel-head"><div><div style="font-weight:800;font-size:17px">${esc(c.name || "Unknown")}</div>
+      <div class="muted small">${[c.phone, c.email].filter(Boolean).map(esc).join(" · ")}</div>
+      <div class="faint small">${esc(c.source || "")} · ${c.attempts || 0} attempt${c.attempts === 1 ? "" : "s"}${c.last_call_at ? " · last call " + fmt(c.last_call_at) : ""}</div></div>
+      <div style="text-align:right">${rpill(c.status)}<div><a href="#" class="muted small" onclick="closeCandidate();return false">Close</a></div></div></div>
+    ${c.summary ? `<div class="summary"><b style="color:var(--mint-d)">Call summary</b><br>${esc(c.summary)}</div>` : ""}
+    <div class="fields">${fields.map(f => `<div><b>${f.label}</b>${esc(c[f.key] || "–")}</div>`).join("")}</div>
+    ${c.next_retry_at ? `<p class="muted small">Next automatic retry: <b>${fmt(c.next_retry_at)}</b></p>` : ""}
+    <div class="toolbar" style="margin:10px 0 4px">
+      <button class="btn primary sm" onclick="callCandidate('${c.id}')" ${["ringing", "in_call"].includes(c.status) ? "disabled" : ""}>${icon("calls")}Call now</button>
+      <button class="btn soft sm" onclick="copyLink('${c.token}')">Copy call link</button>
+      <button class="btn ghost sm" onclick="deleteCandidate('${c.id}')">Delete</button></div>
+    ${messages.length ? `<details ${open ? "open" : ""}><summary>Transcript of last call (${messages.length} turns)</summary><div class="bubbles" style="margin-top:10px">
+      ${messages.map(m => `<div class="bubble ${m.role === "user" ? "me" : ""}"><span class="who">${m.role === "user" ? esc(c.name || "Candidate") : "Kavya"}</span>${esc(m.text)}</div>`).join("")}</div></details>` : ""}`;
+}
+function closeCandidate() { openCand = null; $("candDetail").classList.add("hidden"); $("recruitSplit").classList.remove("open"); loadRecruit(); }
+
+async function callCandidate(id) {
+  const w = window.open("about:blank", "_blank");  // open now so the popup isn't blocked
+  try { const r = await api(`/api/recruit/${id}/call`, {}); if (w) w.location = r.link; else location.href = r.link; }
+  catch (e) { w?.close(); alert(e.message); }
+  loadRecruit();
+}
+function copyLink(token) { navigator.clipboard.writeText(`${location.origin}/c/${token}`); alert("Call link copied. Send it to the candidate on WhatsApp or email."); }
+async function deleteCandidate(id) { if (!confirm("Delete this candidate?")) return; await api(`/api/recruit/${id}/delete`, {}); closeCandidate(); }
+async function saveConfig(body) { try { await api("/api/recruit-config", body); } catch (e) { alert(e.message); } loadRecruit(); }
+function toggleAuto() { saveConfig({ auto_dial: !rdata?.config.auto_dial }); }
+function toggleJob() {
+  const f = $("jobForm"), hidden = f.classList.toggle("hidden"); $("jobView").classList.toggle("hidden", !hidden);
+  if (!hidden) f.innerHTML = JOB_FIELDS.map(([k, l]) => `<label class="small muted" style="display:block;margin-top:8px">${l}</label><input class="mini" name="${k}" value="${esc(rdata.config.job[k])}">`).join("")
+    + `<button class="btn primary sm" style="margin-top:12px">Save opportunity</button>`;
+}
+$("jobForm").onsubmit = async e => { e.preventDefault(); await saveConfig({ job: Object.fromEntries(new FormData(e.target)) }); toggleJob(); };
+$("sheetForm").onsubmit = e => { e.preventDefault(); saveConfig({ sheet_webhook: $("sheetUrl").value.trim() }); };
+async function syncSheet() { try { const r = await api("/api/recruit-sync", {}); alert(`Synced ${r.synced} of ${r.total} candidates to Google Sheets.`); } catch (e) { alert(e.message); } loadRecruit(); }
+function exportExcel() { location.href = `/api/recruit-export.xlsx?token=${encodeURIComponent(auth.token)}`; }
+$("addForm").onsubmit = async e => {
+  e.preventDefault();
+  try { await api("/api/recruit/candidates", { name: $("aName").value, phone: $("aPhone").value, email: $("aEmail").value }); e.target.reset(); }
+  catch (err) { alert(err.message); } loadRecruit();
+};
+$("fileIn").onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  const rd = new FileReader();
+  rd.onload = async () => {
+    try { const r = await api("/api/recruit/upload", { filename: f.name, data: rd.result }); alert(`Added ${r.added} candidates${r.skipped ? `, skipped ${r.skipped} duplicates` : ""}.`); }
+    catch (err) { alert(err.message); }
+    e.target.value = ""; loadRecruit();
+  };
+  rd.readAsDataURL(f);
+};
+setInterval(() => loadRecruit().catch(() => {}), 3000); // live calling status
+
+// ---------- EasyRecruitz: candidate's private call link (/c/<token>)
+const candToken = location.pathname.startsWith("/c/") ? decodeURIComponent(location.pathname.slice(3)) : null;
+let candPoll = null, candInfo = null, ringCtx = null, ringTimer = null;
+
+function ringtone(on) {  // classic double ring, generated with Web Audio (no files)
+  clearInterval(ringTimer); ringTimer = null;
+  if (!on) return;
+  try {
+    ringCtx = ringCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const burst = () => [0, 0.45].forEach(off => {
+      const o = ringCtx.createOscillator(), o2 = ringCtx.createOscillator(), g = ringCtx.createGain(), t = ringCtx.currentTime + off;
+      o.frequency.value = 440; o2.frequency.value = 480; g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.12, t + 0.03); g.gain.setValueAtTime(0.12, t + 0.35); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+      o.connect(g); o2.connect(g); g.connect(ringCtx.destination); o.start(t); o2.start(t); o.stop(t + 0.42); o2.stop(t + 0.42);
+    });
+    burst(); ringTimer = setInterval(burst, 3000);
+  } catch {}
+}
+
+async function candidateBoot() {
+  $("login").classList.add("hidden"); $("app").classList.add("hidden"); $("cand").classList.remove("hidden");
+  $("candAvatar").innerHTML = avatar("easyrecruitz", 128);
+  const tick = async () => {
+    try { candInfo = await (await fetch(`/api/candidate/${encodeURIComponent(candToken)}`)).json(); } catch { return; }
+    if (!candInfo.status) { $("candMsg").textContent = candInfo.detail || "This link isn't valid."; $("candActions").innerHTML = ""; return; }
+    const first = (candInfo.name || "").split(" ")[0], ringing = candInfo.status === "ringing";
+    $("candCard").classList.toggle("ringing", ringing);
+    if (ringing) {
+      $("candSub").textContent = "Incoming call · EasyRecruitz 365";
+      $("candMsg").innerHTML = `${first ? esc(first) + ", " : ""}Kavya is calling about the <b>${esc(candInfo.role)}</b> role.`;
+      if (!$("candActions").dataset.ring) {
+        $("candActions").dataset.ring = 1;
+        $("candActions").innerHTML = `<div class="cand-btns">
+          <div class="round end"><button onclick="candidateDecline()" title="Decline">${'<svg class="i" viewBox="0 0 24 24"><path d="M3 15.5c5-5 13-5 18 0l-2.5 2.5-3.5-2v-3c-2-1-4-1-6 0v3l-3.5 2z"/></svg>'}</button><span>Decline</span></div>
+          <div class="round accept"><button onclick="candidateAnswer()" title="Accept">${icon("calls")}</button><span>Accept</span></div></div>`;
+        ringtone(true);
+      }
+    } else {
+      ringtone(false); delete $("candActions").dataset.ring;
+      $("candSub").textContent = "Recruiter · EasyRecruitz 365";
+      $("candMsg").innerHTML = candInfo.status === "completed"
+        ? `Thanks${first ? ", " + esc(first) : ""}! Your screening is complete. The team will be in touch.`
+        : `Hi${first ? " " + esc(first) : ""}! Kavya would like a quick chat about the <b>${esc(candInfo.role)}</b> role. Missed the call? Call her back now.`;
+      $("candActions").innerHTML = candInfo.status === "in_call" ? "" :
+        `<button class="btn primary" style="margin-top:20px" onclick="candidateAnswer()">${icon("calls")}Call Kavya now</button>`;
+    }
+  };
+  await tick(); candPoll = setInterval(tick, 2000);
+}
+
+async function candidateAnswer() {
+  clearInterval(candPoll); ringtone(false);
+  const r = await (await fetch(`/api/candidate/${encodeURIComponent(candToken)}/answer`, { method: "POST" })).json();
+  auth = { token: r.token, role: "candidate", email: "" };
+  personas[r.persona.id] = r.persona;
+  $("cand").classList.add("hidden"); $("app").classList.remove("hidden"); $("app").classList.add("cand-mode");
+  startCall(r.persona.id, r);
+}
+async function candidateDecline() {
+  ringtone(false);
+  await fetch(`/api/candidate/${encodeURIComponent(candToken)}/decline`, { method: "POST" });
+}
+function candidateDone() {
+  $("app").classList.add("hidden"); $("cand").classList.remove("hidden"); $("candCard").classList.remove("ringing");
+  $("candMsg").textContent = "Thanks for your time! The EasyRecruitz team will confirm the next steps on email or WhatsApp.";
+  $("candActions").innerHTML = ""; $("candSub").textContent = "Call ended · EasyRecruitz 365";
+}
+
+if (candToken) candidateBoot(); else boot();
 </script>
 </body>
 </html>

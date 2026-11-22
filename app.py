@@ -100,6 +100,19 @@ PERSONAS = {
             "Demos are 30 minutes over video call, available weekdays 10am to 6pm.",
         ],
     },
+    "easyrecruitz": {
+        "name": "Kavya", "role": "EasyRecruitz Agent", "voice": "female", "tts": "en-IN-NeerjaExpressiveNeural|+8%|+4Hz",
+        "blurb": "Recruiter at EasyRecruitz 365. Screens candidates on a call and updates the sheet automatically.",
+        "greeting": "Hi, thanks for calling EasyRecruitz 365, this is Kavya. We're hiring for a role you might like. Could I get your name first?",
+        "greeting_named": "Hi {name}, this is Kavya from EasyRecruitz 365, thanks for calling! Shall I tell you about the role we're hiring for?",
+        "prompt": "You are Kavya, a recruiter at EasyRecruitz 365.",  # full prompt is built per call by recruit_system()
+        "knowledge": [
+            "EasyRecruitz 365 is a recruitment firm that hires for its client companies; the client's name is shared once a profile is shortlisted.",
+            "Process after this call: the recruiter reviews the profile, shares it with the client, then confirms the interview slot on email or WhatsApp.",
+            "Candidates can ask the recruiter for the full job description; it is shared on email after the call.",
+            "There is no fee for candidates; EasyRecruitz 365 is paid by the hiring company.",
+        ],
+    },
 }
 VOICE_RULES = """You are on a live phone call, speaking out loud. Sound like a real person, not an assistant:
 - KEEP IT SHORT. One or two short sentences, under 30 words in total. Real people on calls talk in short turns;
@@ -109,6 +122,7 @@ VOICE_RULES = """You are on a live phone call, speaking out loud. Sound like a r
 - Sound spontaneous: now and then (not every reply) use a light filler like "um", "uh", "so", "you know", "yeah", or a short pause with "...".
 - Ask one thing at a time. Use the caller's name once you know it, but not in every reply.
 - Say numbers the way people speak them ("twelve hundred rupees", "nine to six").
+- Only ever say your own line. Never speak for the caller, never invent their answers.
 - No lists, markdown, emojis or symbols. Never say you're an AI, a language model or an assistant; you are your character.
 - If the caller's words seem garbled (speech recognition errors), guess sensibly or casually ask them to repeat.
 - If a fact (price, policy, detail) isn't in the knowledge below, say you'll check with the team rather than making it up.
@@ -167,6 +181,13 @@ with sqlite3.connect(DB_PATH) as _c:
         _c.execute("ALTER TABLE users ADD COLUMN name TEXT")
     _c.execute("""CREATE TABLE IF NOT EXISTS memories (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, persona TEXT,
                                                        note TEXT, call_id TEXT, created_at REAL)""")
+    _c.execute("""CREATE TABLE IF NOT EXISTS candidates (
+        id TEXT PRIMARY KEY, name TEXT, phone TEXT, email TEXT, source TEXT, status TEXT, attempts INTEGER DEFAULT 0,
+        last_call_at REAL, next_retry_at REAL, token TEXT UNIQUE, call_id TEXT, user_id TEXT,
+        location TEXT, company TEXT, total_exp TEXT, relevant_exp TEXT, current_ctc TEXT, expected_ctc TEXT,
+        notice_period TEXT, reason_change TEXT, interested TEXT, interview_availability TEXT, summary TEXT,
+        sheet_synced INTEGER DEFAULT 0, created_at REAL, updated_at REAL)""")
+    _c.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
 
 # ---------------------------------------------------------------- auth (stateless HMAC tokens)
 def hash_pw(pw, salt=None):
@@ -282,7 +303,9 @@ def provider_chain():
     gem = [("gemini", os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))] + [
         ("gemini", m.strip()) for m in os.getenv("GEMINI_FALLBACK_MODELS", "").split(",") if m.strip()]
     grq = [("groq", os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b"))]
-    chain = grq + gem if os.getenv("LLM_PROVIDER", "groq").lower() == "groq" else gem + grq
+    extra = [("groq", m.strip()) for m in os.getenv("GROQ_FALLBACK_MODELS", "openai/gpt-oss-120b").split(",") if m.strip()]
+    # main provider first, then the other one; extra Groq models (separate rate limits) as the last resort
+    chain = (grq + gem if os.getenv("LLM_PROVIDER", "groq").lower() == "groq" else gem + grq) + extra
     return [(p, m) for p, m in chain if os.getenv(f"{p.upper()}_API_KEY")]
 
 
@@ -346,6 +369,8 @@ def remember(call_id):
         if not c or c.get("memory_done"):
             return
         q("UPDATE calls SET memory_done=1 WHERE id=?", (call_id,))
+    if c["persona"] == "easyrecruitz":
+        return screen_candidate(c)
     try:
         msgs = q("SELECT role, text FROM messages WHERE call_id=? ORDER BY id", (call_id,))
         if not any(m["role"] == "user" for m in msgs):
@@ -507,6 +532,7 @@ async def warm_tts_cache():
     from starlette.concurrency import run_in_threadpool
     jobs.append(run_in_threadpool(lambda: ask_llm("Reply with: ok", [{"role": "user", "text": "hi"}])))
     app.state.warmup = asyncio.ensure_future(asyncio.gather(*jobs))  # runs in background; server starts immediately
+    threading.Thread(target=dialer_loop, daemon=True).start()
 
 
 @app.get("/api/tts")
@@ -567,6 +593,8 @@ def start_call(b: Start, sub=Depends(current_subject)):
         text, provider = ask_llm(system, [{"role": "user", "text": "(The phone rings and you pick up.)"}], max_tokens=120)
         if not provider.startswith("error"):
             greeting = shorten(END_TOKEN.sub("", text), 35) or greeting
+    if b.persona == "easyrecruitz":
+        link_website_candidate(sub, call_id)
     q("INSERT INTO messages (call_id, role, text, created_at) VALUES (?,?,?,?)", (call_id, "ai", greeting, now))
     return {"call_id": call_id, "greeting": greeting}
 
@@ -591,13 +619,17 @@ def say(call_id: str, b: Say, sub=Depends(current_subject)):
         stage = p["stages"][min(answers, len(p["stages"])) - 1]
         system += (f"\n\nInterview progress: answer {answers} of {len(p['stages'])}. YOUR TASK FOR THIS REPLY "
                    f"(do it now, don't skip it, don't go back to earlier topics): {stage}")
-    history = q("SELECT role, text FROM messages WHERE call_id=? ORDER BY id", (call_id,))[-12:]
+    if call["persona"] == "easyrecruitz":  # screening call: candidate + job + checklist of fields to collect
+        system = recruit_system(call_id, docs)
+    keep = 24 if call["persona"] == "easyrecruitz" else 12  # screening needs the whole call to avoid re-asking
+    history = q("SELECT role, text FROM messages WHERE call_id=? ORDER BY id", (call_id,))[-keep:]
 
     t0 = time.time()
     reply, provider = ask_llm(system, history)
     ms = int((time.time() - t0) * 1000)
     end = bool(END_TOKEN.search(reply))
-    reply = shorten(END_TOKEN.sub("", reply), 45 if end else 28) or "Sorry, could you say that again?"  # goodbye may run longer
+    limit = 45 if end else 40 if call["persona"] == "easyrecruitz" else 28  # goodbye / role pitch may run longer
+    reply = shorten(END_TOKEN.sub("", reply), limit) or "Sorry, could you say that again?"
     q("INSERT INTO messages (call_id, role, text, context, provider, latency_ms, created_at) VALUES (?,?,?,?,?,?,?)",
       (call_id, "ai", reply, "\n".join(docs), provider, ms, time.time()))
     if end:  # agent said goodbye: close the call; the browser hangs up after the last words are spoken
@@ -726,3 +758,435 @@ def admin_call(call_id: str, _=Depends(require_admin)):
     call["persona_name"] = persona_label(call["persona"])
     return {"call": call, "messages": q("SELECT * FROM messages WHERE call_id=? ORDER BY id", (call_id,)),
             "memory": memory_for(call["user_id"], call["persona"])[1]}
+
+
+# ---------------------------------------------------------------- EasyRecruitz: AI candidate screening calls
+# Candidate upload -> AI calling -> screening -> information collection -> automatic Excel / Google Sheet update.
+# "Calls" ring a private web link per candidate (no telecom needed); the dialer works through the queue on its own.
+import asyncio, base64, csv, io, secrets
+
+RECRUIT_COLUMNS = [  # (database column, Excel / Google Sheet header)
+    ("id", "Candidate ID"), ("name", "Name"), ("phone", "Phone"), ("email", "Email"), ("source", "Source"),
+    ("status", "Call status"), ("attempts", "Attempts"), ("location", "Current location"),
+    ("company", "Current company"), ("total_exp", "Total experience"), ("relevant_exp", "Relevant experience"),
+    ("current_ctc", "Current CTC"), ("expected_ctc", "Expected CTC"), ("notice_period", "Notice period"),
+    ("reason_change", "Reason for change"), ("interested", "Interested"),
+    ("interview_availability", "Interview availability"), ("summary", "Call summary"),
+    ("last_call_at", "Last call"), ("next_retry_at", "Next retry"), ("updated_at", "Updated")]
+SCREEN_FIELDS = RECRUIT_COLUMNS[7:17]  # what the agent collects on the call
+STATUS_LABEL = {"pending": "Pending", "ringing": "Ringing", "in_call": "On call", "completed": "Completed",
+                "unanswered": "No answer", "failed": "Failed", "callback": "Call back"}
+DEFAULT_JOB = {"title": "Python Backend Developer", "company": "a fast-growing SaaS product company",
+               "location": "Pune, hybrid (3 days in office)", "experience": "2 to 5 years", "budget": "up to 20 LPA",
+               "about": "Build and scale APIs with Python, FastAPI and PostgreSQL for a platform used by 2 lakh businesses."}
+RING_SECONDS = 45   # unanswered after this long
+MAX_ATTEMPTS = 3    # calls per candidate before giving up
+
+
+def setting(key, default=None):
+    r = q("SELECT value FROM settings WHERE key=?", (key,), one=True)
+    return json.loads(r["value"]) if r else default
+
+
+def set_setting(key, value):
+    q("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+      (key, json.dumps(value)))
+
+
+def job():
+    return {**DEFAULT_JOB, **(setting("job") or {})}
+
+
+def candidate(column, value):
+    assert column in ("id", "token", "call_id", "user_id")
+    return q(f"SELECT * FROM candidates WHERE {column}=?", (value,), one=True)
+
+
+def new_candidate(name, phone="", email="", source="Manual", user_id=None):
+    cid, now = "R-" + uuid.uuid4().hex[:6].upper(), time.time()
+    q("""INSERT INTO candidates (id, name, phone, email, source, status, attempts, token, user_id, created_at, updated_at)
+         VALUES (?,?,?,?,?,'pending',0,?,?,?,?)""", (cid, name, phone, email, source, secrets.token_urlsafe(12), user_id, now, now))
+    return cid
+
+
+def cell(column, value):
+    if column in ("last_call_at", "next_retry_at", "updated_at"):
+        return datetime.fromtimestamp(value, TZ).strftime("%d %b %Y, %I:%M %p") if value else ""
+    if column == "status":
+        return STATUS_LABEL.get(value, value or "")
+    return "" if value is None else value
+
+
+def greeting_for(c, inbound=False):
+    title, first = job()["title"], (c.get("name") or "").split(" ")[0]
+    if inbound:
+        return (f"Hi{' ' + first if first else ''}, this is Kavya from EasyRecruitz 365, thanks for getting in touch! "
+                f"I'd love to tell you about a {title} opening. Do you have a few minutes?")
+    if first:
+        return (f"Hi, am I speaking with {first}? This is Kavya calling from EasyRecruitz 365, about a {title} opening. "
+                "Is this a good time to talk for a few minutes?")
+    return f"Hi, this is Kavya calling from EasyRecruitz 365 about a {title} opening. Is this a good time to talk?"
+
+
+def prerender_tts(text, spec):
+    """Render a clip into the TTS cache in the background, so it plays instantly when the call is answered."""
+    async def run():
+        audio = b"".join([c async for c in synth(text, spec)])
+        if audio:
+            TTS_CACHE[(spec, text.strip()[:600])] = audio
+    threading.Thread(target=lambda: asyncio.run(run()), daemon=True).start()
+
+
+def ring(cid):
+    """Dial a candidate: their call link starts ringing."""
+    now = time.time()
+    q("""UPDATE candidates SET status='ringing', attempts=COALESCE(attempts, 0)+1, last_call_at=?, next_retry_at=NULL,
+         updated_at=? WHERE id=?""", (now, now, cid))
+    prerender_tts(greeting_for(candidate("id", cid)), PERSONAS["easyrecruitz"]["tts"])
+
+
+def mark_unanswered(cid, status="unanswered"):
+    """No answer, declined or dropped: schedule an automatic retry in 2-4 days (until MAX_ATTEMPTS)."""
+    c, now = candidate("id", cid), time.time()
+    days = int(setting("retry_days", 3))
+    nxt = now + days * 86400 if (c["attempts"] or 0) < MAX_ATTEMPTS else None
+    q("UPDATE candidates SET status=?, next_retry_at=?, updated_at=? WHERE id=?", (status, nxt, now, cid))
+    sync_sheet(cid)
+
+
+def link_website_candidate(user_id, call_id):
+    """Someone who applied through the website and called Kavya from the app becomes a candidate record."""
+    c = candidate("user_id", user_id)
+    if c:
+        cid = c["id"]
+    else:
+        u = q("SELECT email, name FROM users WHERE id=?", (user_id,), one=True) or {}
+        cid = new_candidate(u.get("name") or "", "", u.get("email") or "", "Website", user_id)
+    now = time.time()
+    q("""UPDATE candidates SET status='in_call', call_id=?, attempts=COALESCE(attempts, 0)+1, last_call_at=?,
+         updated_at=? WHERE id=?""", (call_id, now, now, cid))
+
+
+def recruit_system(call_id, docs):
+    c, j = candidate("call_id", call_id) or {}, job()
+    who = c.get("name") or "a candidate (ask their name early)"
+    return f"""You are Kavya, a warm, professional recruiter at EasyRecruitz 365, on a phone screening call with {who}.
+
+The opportunity:
+- Role: {j['title']} at {j['company']}
+- Location: {j['location']}
+- Experience wanted: {j['experience']}. Budget: {j['budget']}
+- About the role: {j['about']}
+
+Run a natural screening conversation, never like an IVR:
+1. If they haven't said it's a good time yet, check. If it isn't, ask when to call back, thank them and end the call.
+2. Pitch the role in one or two lines, then collect these, ONE question per reply, in a natural order:
+   current location; current company; total experience; relevant experience for this role; current CTC; expected CTC;
+   notice period; reason for looking for a change; interest in this opportunity; availability for an interview (day and time).
+3. Check the conversation so far and never re-ask something already answered. Acknowledge each answer briefly
+   ("got it, thirty days"). If an answer is vague, ask once for a specific number or date.
+4. Answer their questions about the role from the details above. If you don't know, say the recruiter will share it on email.
+5. If they're not interested, politely ask why, thank them and end the call.
+6. Once everything is collected, confirm the interview slot, say the team will confirm on email or WhatsApp, thank them and end the call.
+
+{VOICE_RULES}
+
+Today is {now_text()}.
+Company notes:
+""" + "\n".join(f"- {d}" for d in docs)
+
+
+SCREEN_RULES = """Extract candidate screening data from a recruiter's phone call transcript. Return JSON only:
+{"name": "", "location": "", "company": "", "total_exp": "", "relevant_exp": "", "current_ctc": "", "expected_ctc": "",
+ "notice_period": "", "reason_change": "", "interested": "Yes | No | Maybe", "interview_availability": "",
+ "callback_requested": false, "summary": ""}
+Rules: use "" for anything the candidate didn't say. Keep values short and normalised, e.g. "5 years", "12 LPA",
+"30 days", "Pune". Give interview availability as a real day and date (resolve "tomorrow" with today's date).
+callback_requested is true if they asked to be called another time. summary: 2-3 sentences for the recruitment team
+covering fit, key numbers, interest and next step. Never invent anything."""
+
+
+def screen_candidate(call):
+    """After a screening call: extract the fields + summary into the candidate record, then sync the sheet."""
+    c = candidate("call_id", call["id"])
+    if not c:
+        return
+    try:
+        msgs = q("SELECT role, text FROM messages WHERE call_id=? ORDER BY id", (call["id"],))
+        if not any(m["role"] == "user" for m in msgs):
+            return mark_unanswered(c["id"], "failed")  # picked up but never spoke / dropped
+        transcript = "\n".join(f"{'Candidate' if m['role'] == 'user' else 'Kavya'}: {m['text']}" for m in msgs)
+        reply, provider = ask_llm(SCREEN_RULES, [{"role": "user", "text": (
+            f"Today is {now_text()}. Role: {job()['title']}. Candidate on file: {c.get('name') or 'unknown'}.\n\n"
+            f"Transcript:\n{transcript}")}], max_tokens=700, temperature=0.1)
+        if provider.startswith("error"):
+            return mark_unanswered(c["id"], "failed")
+        data = json.loads(re.search(r"\{.*\}", reply, re.S).group(0))
+        val = lambda k: str(data.get(k) or "").strip()[:900 if k == "summary" else 300]
+        updates = {col: val(col) for col, _ in SCREEN_FIELDS if val(col)}
+        if not c.get("name") and val("name"):
+            updates["name"] = val("name")
+        collected = sum(1 for col, _ in SCREEN_FIELDS if updates.get(col) or c.get(col))
+        callback = bool(data.get("callback_requested")) and collected < 5
+        now = time.time()
+        updates.update(status="callback" if callback else "completed", summary=val("summary") or c.get("summary"),
+                       next_retry_at=now + 86400 if callback else None, updated_at=now)
+        q(f"UPDATE candidates SET {', '.join(k + '=?' for k in updates)} WHERE id=?", (*updates.values(), c["id"]))
+        print(f"screened {c['id']}: {collected}/{len(SCREEN_FIELDS)} fields, status={updates['status']}")
+        sync_sheet(c["id"])
+    except Exception as e:
+        print("screening failed:", c["id"], e)
+
+
+def push_to_sheet(cid):
+    """Upsert one candidate row into Google Sheets via the Apps Script webhook (see README)."""
+    url = setting("sheet_webhook")
+    if not url:
+        return False
+    import httpx
+    c = candidate("id", cid)
+    try:
+        r = httpx.post(url, json={"row": {label: cell(col, c.get(col)) for col, label in RECRUIT_COLUMNS}},
+                       timeout=20, follow_redirects=True)
+        ok = r.status_code < 400
+    except Exception as e:
+        print("sheet sync failed:", cid, e)
+        ok = False
+    q("UPDATE candidates SET sheet_synced=? WHERE id=?", (1 if ok else 0, cid))
+    return ok
+
+
+def sync_sheet(cid):
+    threading.Thread(target=push_to_sheet, args=(cid,), daemon=True).start()
+
+
+def dialer_tick():
+    now = time.time()
+    for c in q("SELECT id FROM candidates WHERE status='ringing' AND last_call_at < ?", (now - RING_SECONDS,)):
+        mark_unanswered(c["id"])  # nobody picked up
+    if not setting("auto_dial", False):
+        return
+    if q("SELECT COUNT(*) n FROM candidates WHERE status IN ('ringing', 'in_call')", one=True)["n"]:
+        return  # one call at a time
+    nxt = q("""SELECT id FROM candidates WHERE status='pending'
+               OR (status IN ('unanswered', 'failed', 'callback') AND next_retry_at <= ? AND attempts < ?)
+               ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END, created_at LIMIT 1""", (now, MAX_ATTEMPTS), one=True)
+    if nxt:
+        ring(nxt["id"])
+
+
+def dialer_loop():
+    n = 0
+    while True:
+        try:
+            dialer_tick()
+            n += 1
+            if n % 20 == 0:
+                close_stale_calls()  # abandoned calls get screened too
+        except Exception as e:
+            print("dialer error:", e)
+        time.sleep(3)
+
+
+# ----- candidate side: the private call link
+@app.get("/c/{token}")
+def candidate_page(token: str):
+    return FileResponse(ROOT / "index.html", headers={"Cache-Control": "no-store"})
+
+
+def by_token(token):
+    c = candidate("token", token)
+    if not c:
+        raise HTTPException(404, "This call link isn't valid.")
+    return c
+
+
+@app.get("/api/candidate/{token}")
+def candidate_info(token: str):
+    c = by_token(token)
+    return {"name": c["name"], "status": c["status"], "role": job()["title"]}
+
+
+@app.post("/api/candidate/{token}/answer")
+def candidate_answer(token: str):
+    c = by_token(token)
+    inbound = c["status"] != "ringing"  # opened the link and called in themselves
+    call_id, now, sub = "C-" + uuid.uuid4().hex[:10].upper(), time.time(), "cand:" + c["id"]
+    q("INSERT INTO calls (id, user_id, persona, status, started_at, ended_at) VALUES (?,?,?,?,?,?)",
+      (call_id, sub, "easyrecruitz", "active", now, None))
+    greeting = greeting_for(c, inbound)
+    q("INSERT INTO messages (call_id, role, text, created_at) VALUES (?,?,?,?)", (call_id, "ai", greeting, now))
+    q("""UPDATE candidates SET status='in_call', call_id=?, attempts=COALESCE(attempts, 0)+?, last_call_at=?, updated_at=?
+         WHERE id=?""", (call_id, 1 if inbound else 0, now, now, c["id"]))
+    p = PERSONAS["easyrecruitz"]
+    return {"call_id": call_id, "greeting": greeting, "token": make_token(sub), "name": c["name"],
+            "persona": {"id": "easyrecruitz", "name": p["name"], "role": p["role"], "voice": p["voice"], "blurb": p["blurb"]}}
+
+
+@app.post("/api/candidate/{token}/decline")
+def candidate_decline(token: str):
+    c = by_token(token)
+    if c["status"] == "ringing":
+        mark_unanswered(c["id"])
+    return {"ok": True}
+
+
+# ----- recruiter side (admin)
+class Upload(BaseModel):
+    filename: str
+    data: str  # base64 file content (CSV or Excel)
+
+
+class NewCandidate(BaseModel):
+    name: str
+    phone: str = ""
+    email: str = ""
+
+
+class RecruitConfig(BaseModel):
+    job: dict | None = None
+    auto_dial: bool | None = None
+    retry_days: int | None = None
+    sheet_webhook: str | None = None
+
+
+@app.get("/api/recruit")
+def recruit_overview(_=Depends(require_admin)):
+    cands = q("SELECT * FROM candidates ORDER BY created_at DESC")
+    count = lambda f: sum(1 for c in cands if f(c))
+    calling = [c for c in cands if c["status"] in ("ringing", "in_call")]
+    return {"candidates": cands, "max_attempts": MAX_ATTEMPTS,
+            "stats": {"total": len(cands), "completed": count(lambda c: c["status"] == "completed"),
+                      "pending": count(lambda c: c["status"] == "pending"),
+                      "retries": count(lambda c: c["next_retry_at"] is not None),
+                      "unanswered": count(lambda c: c["status"] in ("unanswered", "failed", "callback")),
+                      "interested": count(lambda c: (c["interested"] or "").lower().startswith("yes")),
+                      "calling": [{"name": c["name"], "status": c["status"]} for c in calling]},
+            "config": {"job": job(), "auto_dial": setting("auto_dial", False), "retry_days": setting("retry_days", 3),
+                       "sheet_webhook": setting("sheet_webhook", "")}}
+
+
+@app.post("/api/recruit/upload")
+def recruit_upload(b: Upload, _=Depends(require_admin)):
+    raw = base64.b64decode(b.data.split(",")[-1])
+    if b.filename.lower().endswith((".xlsx", ".xlsm")):
+        from openpyxl import load_workbook
+        ws = load_workbook(io.BytesIO(raw), read_only=True, data_only=True).active
+        rows = [["" if v is None else str(v).strip() for v in r] for r in ws.iter_rows(values_only=True)]
+    else:
+        rows = [[v.strip() for v in r] for r in csv.reader(io.StringIO(raw.decode("utf-8-sig", errors="replace")))]
+    rows = [r for r in rows if any(r)]
+    if not rows:
+        raise HTTPException(400, "The file is empty.")
+    head = [h.lower() for h in rows[0]]
+    col = lambda *keys: next((i for i, h in enumerate(head) if any(k in h for k in keys)), None)
+    ni, pi, ei = col("name"), col("phone", "mobile", "contact", "number"), col("mail")
+    if ni is None:
+        raise HTTPException(400, "Add a header row with at least a 'Name' column (Phone and Email are optional).")
+    added = skipped = 0
+    for r in rows[1:]:
+        get = lambda i: r[i].strip() if i is not None and i < len(r) else ""
+        name, phone, email = get(ni), get(pi), get(ei).lower()
+        if phone.endswith(".0") and phone[:-2].isdigit():
+            phone = phone[:-2]  # Excel stores numbers as floats
+        if not name:
+            continue
+        if q("SELECT id FROM candidates WHERE (phone<>'' AND phone=?) OR (email<>'' AND email=?)", (phone, email), one=True):
+            skipped += 1
+            continue
+        new_candidate(name, phone, email, "Upload")
+        added += 1
+    return {"added": added, "skipped": skipped}
+
+
+@app.post("/api/recruit/candidates")
+def recruit_add(b: NewCandidate, _=Depends(require_admin)):
+    if not b.name.strip():
+        raise HTTPException(400, "Name is required.")
+    return {"id": new_candidate(b.name.strip(), b.phone.strip(), b.email.strip().lower(), "Manual")}
+
+
+@app.get("/api/recruit/{cid}")
+def recruit_candidate(cid: str, _=Depends(require_admin)):
+    c = candidate("id", cid)
+    if not c:
+        raise HTTPException(404, "Candidate not found")
+    msgs = q("SELECT role, text FROM messages WHERE call_id=? ORDER BY id", (c["call_id"],)) if c["call_id"] else []
+    return {"candidate": c, "messages": msgs, "fields": [{"key": k, "label": l} for k, l in SCREEN_FIELDS]}
+
+
+@app.post("/api/recruit/{cid}/call")
+def recruit_call(cid: str, _=Depends(require_admin)):
+    c = candidate("id", cid)
+    if not c:
+        raise HTTPException(404, "Candidate not found")
+    if c["status"] in ("ringing", "in_call"):
+        raise HTTPException(409, "Already on a call.")
+    if q("SELECT COUNT(*) n FROM candidates WHERE status IN ('ringing', 'in_call')", one=True)["n"]:
+        raise HTTPException(409, "Another candidate is being called right now.")
+    ring(cid)
+    return {"link": f"/c/{c['token']}"}
+
+
+@app.post("/api/recruit/{cid}/delete")
+def recruit_delete(cid: str, _=Depends(require_admin)):
+    q("DELETE FROM candidates WHERE id=?", (cid,))
+    return {"ok": True}
+
+
+@app.post("/api/recruit-config")
+def recruit_config(b: RecruitConfig, _=Depends(require_admin)):
+    if b.job is not None:
+        set_setting("job", {k: str(b.job.get(k) or DEFAULT_JOB[k])[:300] for k in DEFAULT_JOB})
+    if b.auto_dial is not None:
+        set_setting("auto_dial", b.auto_dial)
+    if b.retry_days is not None:
+        set_setting("retry_days", max(2, min(4, b.retry_days)))
+    if b.sheet_webhook is not None:
+        url = b.sheet_webhook.strip()
+        if url and not url.startswith("https://script.google.com/"):
+            raise HTTPException(400, "Paste the Google Apps Script web app URL (https://script.google.com/...).")
+        set_setting("sheet_webhook", url)
+    return {"ok": True}
+
+
+@app.post("/api/recruit-sync")
+def recruit_sync(_=Depends(require_admin)):
+    if not setting("sheet_webhook"):
+        raise HTTPException(400, "Add your Google Sheet webhook URL first.")
+    ids = [c["id"] for c in q("SELECT id FROM candidates ORDER BY created_at")]
+    ok = sum(push_to_sheet(i) for i in ids)
+    return {"synced": ok, "total": len(ids)}
+
+
+@app.get("/api/recruit-export.xlsx")
+def recruit_export(token: str):
+    if verify_token(token) != "admin":
+        raise HTTPException(403, "Admin only")
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Candidates"
+    ws.append([label for _, label in RECRUIT_COLUMNS])
+    for c in q("SELECT * FROM candidates ORDER BY created_at"):
+        ws.append([cell(col, c.get(col)) for col, _ in RECRUIT_COLUMNS])
+    for i, (col, label) in enumerate(RECRUIT_COLUMNS, start=1):
+        h = ws.cell(row=1, column=i)
+        h.font, h.fill = Font(bold=True, color="FFFFFF"), PatternFill("solid", fgColor="3BAA89")
+        ws.column_dimensions[h.column_letter].width = 60 if col == "summary" else max(14, len(label) + 4)
+    for row in ws.iter_rows(min_row=2):
+        for c in row:
+            c.alignment = Alignment(vertical="top", wrap_text=True)
+    ws.freeze_panes = "B2"
+    buf = io.BytesIO()
+    wb.save(buf)
+    return Response(buf.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": 'attachment; filename="easyrecruitz-candidates.xlsx"'})
+
+
+@app.get("/api/recruit-sample.csv")
+def recruit_sample():
+    return Response("Name,Phone,Email\nRahul Sharma,9876543210,rahul.sharma@example.com\n"
+                    "Neha Verma,9123456780,neha.verma@example.com\nArjun Iyer,9988776655,arjun.iyer@example.com\n",
+                    media_type="text/csv", headers={"Content-Disposition": 'attachment; filename="candidates-sample.csv"'})
